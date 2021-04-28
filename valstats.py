@@ -6,11 +6,6 @@ from functools import lru_cache
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 
-# USER = 'Ronald RayGun#RECUR'
-# USER = 'Triangle#5306'
-# USER = 'Iluminati#Death'
-
-
 @lru_cache()
 def get_userid_from_name(username: str) -> str:
     """

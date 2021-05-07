@@ -3,7 +3,7 @@ import re
 import requests
 import matplotlib.pyplot as plt
 import click
-import dateutil.parser
+from dateutil import parser, tz
 import pickle
 from functools import wraps, lru_cache
 from frozendict import frozendict
@@ -164,7 +164,7 @@ def process_comp_matches(matches, user_id):
             continue
         ranks = []
         winning_team = next((t for t in match['teams'] if t['won'] is True), None)
-        starttime = datetime.utcfromtimestamp(match.get('matchInfo').get('gameStartMillis') / 1000).isoformat()
+        starttime = datetime.utcfromtimestamp(match.get('matchInfo').get('gameStartMillis') / 1000).replace(tzinfo=tz.tzutc()).isoformat()
         map = mapmap[match.get('matchInfo').get('mapId').split('/')[-1:][0]]
         game = {'date': starttime,
                 'map': map}
@@ -192,7 +192,7 @@ def process_comp_matches(matches, user_id):
 def print_games(games: list):
     games = sorted(games, key=lambda i: i['date'])
     for game in games:
-        gamedate = dateutil.parser.parse(game['date']).astimezone().replace(tzinfo=None)
+        gamedate = parser.parse(game['date']).astimezone().replace(tzinfo=None)
         print(gamedate.isoformat(sep=' ', timespec='minutes'))
         print(game['agent'] + '@' + game['map'])
         print("Result: " + game['result'])
@@ -301,7 +301,7 @@ agentmap = {
 @click.command()
 @click.argument('username')  # help="Your riot login username. Not in-game user")
 @click.argument('password')
-@click.option('--zone', default='eu')
+@click.option('--zone', default='eu', help="Valorant zone (eu, na etc)")
 @click.option('--plot/--no-plot', default=True, help='Plot the result')
 @click.option('--print/--no-print', 'print_', default=True, help='Print the games to terminal')
 @click.option('--db-name', default=None, help="Database name and path. Default is ./{username}.db")

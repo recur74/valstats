@@ -1,62 +1,175 @@
+import sys
+import re
 import requests
 import matplotlib.pyplot as plt
 import click
 import dateutil.parser
-from functools import lru_cache
+import pickle
+from functools import wraps, lru_cache
+from frozendict import frozendict
+from datetime import datetime
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 
-# USER = 'Ronald RayGun#RECUR'
-# USER = 'Triangle#5306'
-# USER = 'Iluminati#Death'
+
+def file_to_object(save_file):
+    print("Reading database")
+    try:
+        object = pickle.load(open(save_file, "rb"))
+    except IOError as ioe:
+        print(ioe.strerror)
+        return None
+    return object
 
 
-@lru_cache()
-def get_userid_from_name(username: str) -> str:
-    """
-    :param username: Valorant username in format "NAME#TAG"
-    :return: userid used for blitz.gg api
-    """
-    USERURL = "https://valorant.iesdev.com/player/{username}"
-    username = username.replace('#', '-').lower()
-    response = requests_retry_session().get(USERURL.format(username=username)).json()
-    userid = response.get('subject')
-    return userid
+def object_to_file(object, filename):
+    print("Saving to database")
+    pickle.dump(object, open(filename, "wb"), protocol=2)
 
 
-def fetch_match_data(username: str, acts: list) -> list:
+def draw_progress_bar(percent, barLen = 20):
+    sys.stdout.write("\r")
+    progress = ""
+    for i in range(barLen):
+        if i < int(barLen * percent):
+            progress += "="
+        else:
+            progress += " "
+    sys.stdout.write("[ %s ] %.2f%%" % (progress, percent * 100))
+    sys.stdout.flush()
+
+
+def login(username, password):
+
+    def _start_session():
+        auth_url = 'https://auth.riotgames.com/api/v1/authorization'
+        session = requests_retry_session()
+        # Start authorization session
+        data = {
+            'client_id': 'play-valorant-web-prod',
+            'nonce': '1',
+            'redirect_uri': 'https://playvalorant.com/opt_in',
+            'response_type': 'token id_token',
+        }
+        session.post(auth_url, json=data).json()
+        return session
+
+    def _get_auth_token(session, username, password):
+        # Authorize and get access-token
+        auth_url = 'https://auth.riotgames.com/api/v1/authorization'
+        data = {
+            'type': 'auth',
+            'username': f'{username}',
+            'password': f'{password}',
+        }
+        response = session.put(auth_url, json=data).json()
+        # print(response)
+
+        pattern = re.compile(
+            'access_token=((?:[a-zA-Z]|\d|\.|-|_)*).*id_token=((?:[a-zA-Z]|\d|\.|-|_)*).*expires_in=(\d*)')
+        response = pattern.findall(response['response']['parameters']['uri'])[0]
+        access_token = response[0]
+        # print('Access Token: ' + access_token)
+        return access_token
+
+    def _get_request_headers(session, auth_token):
+        entitlement_url = 'https://entitlements.auth.riotgames.com/api/token/v1'
+        headers = {
+            'Authorization': f'Bearer {auth_token}',
+            'X-Riot-ClientPlatform': 'ew0KCSJwbGF0Zm9ybVR5cGUiOiAiUEMiLA0KCSJwbGF0Zm9ybU9TIjogIldpbmRvd3MiLA0KCSJwbGF0Z'
+                                     'm9ybU9TVmVyc2lvbiI6ICIxMC4wLjE5MDQyLjEuMjU2LjY0Yml0IiwNCgkicGxhdGZvcm1DaGlwc2V0Ij'
+                                     'ogIlVua25vd24iDQp9',
+            'X-Riot-ClientVersion': 'release-02.01-shipping-6-511946',
+        }
+        response = session.post(entitlement_url, headers=headers, json={}).json()
+        entitlements_token = response['entitlements_token']
+        headers['X-Riot-Entitlements-JWT'] = entitlements_token
+        # print('Entitlements Token: ' + entitlements_token)
+        return headers
+
+    print("Logging in")
+    session = _start_session()
+    auth_token = _get_auth_token(session, username, password)
+    headers = _get_request_headers(session, auth_token)
+    return session, headers
+
+
+def freezeargs(func):
+    """Transform mutable dictionnary
+    Into immutable
+    Useful to be compatible with cache
     """
-    Fetches match data for a user and list of acts
-    :param username: Valorant username in format "NAME#TAG"
-    :param acts: List if acts in format ["2.1", "2.2"]
-    :return
-    """
-    MATCHURL = "https://valorant.iesdev.com/matches/{userid}?" \
-               "offset={offset}&queues=competitive&type=subject&actId={actid}"
-    matches = []
-    userid = get_userid_from_name(username)
-    for act in sorted(acts):
-        offset = 0
-        actid = actmap[act]
-        response = requests_retry_session().get(MATCHURL.format(offset=offset, userid=userid, actid=actid)).json()
-        while len(response.get('data')) == 20:
-            matches.extend(response.get('data', []))
-            offset += 20
-            response = requests_retry_session().get(MATCHURL.format(offset=offset, userid=userid, actid=actid)).json()
-        matches.extend(response.get('data', []))
+
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        args = tuple([frozendict(arg) if isinstance(arg, dict) else arg for arg in args])
+        kwargs = {k: frozendict(v) if isinstance(v, dict) else v for k, v in kwargs.items()}
+        return func(*args, **kwargs)
+    return wrapped
+
+
+@freezeargs
+@lru_cache
+def get_user_id(session, headers):
+    print("Getting user id")
+    response = session.post('https://auth.riotgames.com/userinfo', headers=headers, json={}).json()
+    user_id = response['sub']
+    return user_id
+
+
+def get_comp_history(session, headers, zone='eu'):
+    print("Fetching matches")
+
+    user_id = get_user_id(session, headers)
+
+    match_ids = []
+
+    startindex = 0
+    size = 20
+    endindex = startindex + size
+    url = 'https://pd.{zone}.a.pvp.net/match-history/v1/history/{user_id}?startIndex={startindex}&endIndex={endindex}'
+    # url = 'https://pd.{zone}.a.pvp.net/mmr/v1/players/{user_id}/competitiveupdates?startIndex={startindex}&endIndex={endindex}'
+    response = session.get(url.format(zone=zone, user_id=user_id, startindex=startindex, endindex=endindex),
+                           headers=headers).json()
+    # Matches
+    root = 'History'
+    # root = 'Matches'
+    while len(response.get(root, [])) == size:
+        match_ids.extend([m.get('MatchID') for m in response.get(root, [])])
+        startindex += size
+        endindex += size
+        response = session.get(url.format(zone=zone, user_id=user_id, startindex=startindex, endindex=endindex),
+                               headers=headers).json()
+    match_ids.extend([m.get('MatchID') for m in response.get(root, [])])
+
+    print("Found {count} matches".format(count=len(match_ids)))
+
+    matches = {}
+    match_info = 'https://pd.{zone}.a.pvp.net/match-details/v1/matches/{match_id}'
+    for i, mid in enumerate(match_ids):
+        draw_progress_bar((i + 1) / len(match_ids))
+        response = session.get(match_info.format(zone=zone, match_id=mid), headers=headers, timeout=5).json()
+        if response.get('matchInfo', {}).get('isRanked'):
+            matches[mid] = response
+    print('')
+    print("Found {count} ranked matches".format(count=len(matches.keys())))
     return matches
 
 
-def process_matches(username, matches: list) -> list:
+def process_comp_matches(matches, user_id):
+    print("Processing matches")
     games = []
-    userid=get_userid_from_name(username)
-    for match in matches:
+    for match in matches.values():
+        if match.get('matchInfo', {}).get('queueID') != 'competitive':
+            continue
         ranks = []
         winning_team = next((t for t in match['teams'] if t['won'] is True), None)
-        game = {'date': match.get('startedAt'), # dateutil.parser.parse(match.get('startedAt')),
-                'map': mapmap.get(match.get('map'), match.get('map')).title()}
+        starttime = datetime.utcfromtimestamp(match.get('matchInfo').get('gameStartMillis') / 1000).isoformat()
+        map = mapmap[match.get('matchInfo').get('mapId').split('/')[-1:][0]]
+        game = {'date': starttime,
+                'map': map}
         for player in match.get('players', []):
-            if player.get('subject') == userid:
+            if player.get('subject') == user_id:
                 game['agent'] = agentmap.get(player.get('characterId'), player.get('characterId'))
                 game['rank'] = rankmap[player.get('competitiveTier')]
                 game['rank_raw'] = player.get('competitiveTier')
@@ -66,7 +179,7 @@ def process_matches(username, matches: list) -> list:
                     game['result'] = 'Win'
                 else:
                     game['result'] = 'Loss'
-            if player.get('competitiveTier') and player.get('subject') != userid:
+            if player.get('competitiveTier', 0) != 0 and player.get('subject') != user_id:
                 ranks.append(player.get('competitiveTier'))
         avg = sum(ranks) / len(ranks)
         game['mmr'] = rankmap[int(avg)]
@@ -157,7 +270,12 @@ rankmap = {
 }
 
 mapmap = {
-    'port': 'icebox'
+    'Duality': 'Bind',
+    'Port': 'Icebox',
+    'Triad': 'Haven',
+    'Bonsai': 'Split',
+    'Ascent': 'Ascent',
+    'Foxtrot': 'Breeze',
 }
 
 agentmap = {
@@ -181,15 +299,23 @@ agentmap = {
 
 
 @click.command()
-@click.argument('username')
+@click.argument('username')  # help="Your riot login username. Not in-game user")
+@click.argument('password')
+@click.option('--zone', default='eu')
 @click.option('--plot/--no-plot', default=True, help='Plot the result')
-@click.option('--print/--no-print', default=True, help='Print the games to terminal')
-@click.option('--act', default=None, help='Specify act in format "2.1" (Episode 2, Act 1)', type=str)
-def valstats(username, plot, print, act):
-    acts = [act] if act else actmap.keys()
-    matches = fetch_match_data(username, acts)
-    matches = process_matches(username, matches)
-    if print:
+@click.option('--print/--no-print', 'print_', default=True, help='Print the games to terminal')
+@click.option('--db-name', default=None, help="Database name and path. Default is ./{username}.db")
+def valstats(username, password, zone, plot, print_, db_name):
+    if db_name is None:
+        db_name = username + '.db'
+    session, headers = login(username, password)
+    user_id = get_user_id(session, headers)
+    matches = file_to_object(db_name) or {}
+    new_matches = get_comp_history(session, headers, zone)
+    matches.update(new_matches)
+    object_to_file(matches, db_name)
+    matches = process_comp_matches(matches, user_id)
+    if print_:
         print_games(matches)
     if plot:
         plot_games(username, matches)

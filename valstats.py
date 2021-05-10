@@ -164,6 +164,7 @@ def process_comp_matches(matches, user_id):
             continue
         ranks = []
         winning_team = next((t for t in match['teams'] if t['won'] is True), None)
+        scores = match['teams'][0]['roundsWon'], match['teams'][0]['roundsPlayed'] - match['teams'][0]['roundsWon']
         starttime = datetime.utcfromtimestamp(match.get('matchInfo').get('gameStartMillis') / 1000).replace(tzinfo=tz.tzutc()).isoformat()
         map = mapmap[match.get('matchInfo').get('mapId').split('/')[-1:][0]]
         game = {'date': starttime,
@@ -174,11 +175,11 @@ def process_comp_matches(matches, user_id):
                 game['rank'] = rankmap[player.get('competitiveTier')]
                 game['rank_raw'] = player.get('competitiveTier')
                 if not winning_team:
-                    game['result'] = 'Draw'
+                    game['result'] = 'Draw {w}-{l}'.format(w=max(scores), l=min(scores))
                 elif player['teamId'] == winning_team['teamId']:
-                    game['result'] = 'Win'
+                    game['result'] = 'Win {w}-{l}'.format(w=max(scores), l=min(scores))
                 else:
-                    game['result'] = 'Loss'
+                    game['result'] = 'Loss {l}-{w}'.format(w=max(scores), l=min(scores))
             if player.get('competitiveTier', 0) != 0 and player.get('subject') != user_id:
                 ranks.append(player.get('competitiveTier'))
         avg = sum(ranks) / len(ranks)

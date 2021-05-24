@@ -119,7 +119,7 @@ def get_user_id(session, headers):
     return user_id
 
 
-def get_comp_history(session, headers, zone='eu'):
+def get_comp_history(session, headers, zone='eu', exclude=[]):
     print("Fetching matches")
 
     user_id = get_user_id(session, headers)
@@ -143,18 +143,20 @@ def get_comp_history(session, headers, zone='eu'):
         response = session.get(url.format(zone=zone, user_id=user_id, startindex=startindex, endindex=endindex),
                                headers=headers).json()
     match_ids.extend([m.get('MatchID') for m in response.get(root, [])])
+    match_ids = [m for m in match_ids if m not in exclude]
 
-    print("Found {count} matches".format(count=len(match_ids)))
+    print("Found {count} new matches".format(count=len(match_ids)))
 
     matches = {}
     match_info = 'https://pd.{zone}.a.pvp.net/match-details/v1/matches/{match_id}'
     for i, mid in enumerate(match_ids):
         draw_progress_bar((i + 1) / len(match_ids))
         response = session.get(match_info.format(zone=zone, match_id=mid), headers=headers, timeout=5).json()
-        if response.get('matchInfo', {}).get('isRanked'):
+        if response.get('matchInfo', {}).get('isRanked') and \
+                response.get('matchInfo', {}).get('queueID') == 'competitive':
             matches[mid] = response
     print('')
-    print("Found {count} ranked matches".format(count=len(matches.keys())))
+    print("Found {count} new ranked matches".format(count=len(matches.keys())))
     return matches
 
 
@@ -162,8 +164,6 @@ def process_comp_matches(matches, user_id):
     print("Processing matches")
     games = []
     for match in matches.values():
-        if match.get('matchInfo', {}).get('queueID') != 'competitive':
-            continue
         ranks = []
         winning_team = next((t for t in match['teams'] if t['won'] is True), None)
         scores = match['teams'][0]['roundsWon'], match['teams'][0]['roundsPlayed'] - match['teams'][0]['roundsWon']
@@ -314,7 +314,7 @@ def valstats(username, password, zone, plot, print_, db_name):
     session, headers = login(username, password)
     user_id = get_user_id(session, headers)
     matches = file_to_object(db_name) or {}
-    new_matches = get_comp_history(session, headers, zone)
+    new_matches = get_comp_history(session, headers, zone, exclude=list(matches.keys()))
     matches.update(new_matches)
     object_to_file(matches, db_name)
     matches = process_comp_matches(matches, user_id)

@@ -119,7 +119,7 @@ def get_user_id(session, headers):
     return user_id
 
 
-def get_comp_history(session, headers, zone='eu', exclude=[]):
+def get_game_history(session, headers, zone='eu', exclude=[]):
     print("Fetching matches")
 
     user_id = get_user_id(session, headers)
@@ -152,18 +152,20 @@ def get_comp_history(session, headers, zone='eu', exclude=[]):
     for i, mid in enumerate(match_ids):
         draw_progress_bar((i + 1) / len(match_ids))
         response = session.get(match_info.format(zone=zone, match_id=mid), headers=headers, timeout=5).json()
-        if response.get('matchInfo', {}).get('isRanked') and \
-                response.get('matchInfo', {}).get('queueID') == 'competitive':
-            matches[mid] = response
+        #if response.get('matchInfo', {}).get('isRanked') and \
+        #        response.get('matchInfo', {}).get('queueID') == queue:
+        matches[mid] = response
     print('')
-    print("Found {count} new ranked matches".format(count=len(matches.keys())))
+    print("Found {count} new matches".format(count=len(matches.keys())))
     return matches
 
 
 def process_comp_matches(matches, user_id):
-    print("Processing matches")
+    print("Processing competitive matches")
     games = []
     for match in matches.values():
+        if match['matchInfo']['queueID'] != 'competitive':
+            continue
         ranks = []
         winning_team = next((t for t in match['teams'] if t['won'] is True), None)
         scores = match['teams'][0]['roundsWon'], match['teams'][0]['roundsPlayed'] - match['teams'][0]['roundsWon']
@@ -192,7 +194,43 @@ def process_comp_matches(matches, user_id):
     return games
 
 
-def print_games(games: list):
+def process_dm_matches(matches, user_id):
+    print("Processing deathmatch games")
+    games = []
+    for match in matches.values():
+        if match['matchInfo']['queueID'] != 'deathmatch':
+            continue
+        starttime = datetime.utcfromtimestamp(match.get('matchInfo').get('gameStartMillis') / 1000).replace(
+            tzinfo=tz.tzutc()).isoformat()
+        map = mapmap[match.get('matchInfo').get('mapId').split('/')[-1:][0]]
+        game = {'date': starttime,
+                'map': map}
+        me = next(p for p in match.get('players') if p.get('subject') == user_id)
+        game['agent'] = agentmap.get(me.get('characterId'), me.get('characterId'))
+        game['kills'] = me['stats']['kills']
+        game['deaths'] = me['stats']['deaths']
+        game['score'] = me['stats']['score']
+        game['kd'] = round(game['kills'] / game['deaths'], 2)
+        games.append(game)
+    return games
+
+
+def print_dm_games(games: list):
+    games = sorted(games, key=lambda i: i['date'])
+    running_average = []
+    for game in games:
+        running_average.append(game['kd'])
+        gamedate = parser.parse(game['date']).astimezone().replace(tzinfo=None)
+        print(gamedate.isoformat(sep=' ', timespec='minutes'))
+        print(game['agent'] + '@' + game['map'])
+        print("{}/{} - {}".format(game['kills'], game['deaths'], game['kd']))
+        if len(running_average) > 30:
+            running_average = running_average[-30:]
+            print("Running average: {}".format(round(sum(running_average) / len(running_average), 2)))
+        print("-----")
+
+
+def print_comp_games(games: list):
     games = sorted(games, key=lambda i: i['date'])
     for game in games:
         gamedate = parser.parse(game['date']).astimezone().replace(tzinfo=None)
@@ -204,7 +242,7 @@ def print_games(games: list):
         print("-----")
 
 
-def plot_games(username: str, games: list):
+def plot_comp_games(username: str, games: list):
     games = sorted(games, key=lambda i: i['date'])
     mmr = [g['mmr_raw'] for g in games]
     ranks = [g['rank_raw'] for g in games]
@@ -226,6 +264,36 @@ def plot_games(username: str, games: list):
     plt.show()
 
 
+def plot_dm_games(username, games):
+    games = sorted(games, key=lambda i: i['date'])
+    kd = [g['kd'] for g in games]
+    ra = []
+
+    running_avg = []
+    for game in games:
+        running_avg.append(game['kd'])
+        if len(running_avg) > 30:
+            running_avg = running_avg[-30:]
+            ra.append(round(sum(running_avg) / len(running_avg), 2))
+        else:
+            ra.append(None)
+
+    dates = [g['date'] for g in games]
+    plt.plot(dates, kd, label="K/D")
+    plt.plot(dates, ra, label="Running Average")
+
+    # plt.yticks(list(rankmap.keys()), list(rankmap.values()))
+    plt.xticks(dates, [i for i, d in enumerate(dates)])
+    plt.gca().xaxis.set_major_locator(plt.MaxNLocator(10))
+    plt.grid(b=True, which='minor', axis='y', color='#EEEEEE', linestyle='-')
+
+    plt.xlabel('Matches')
+    plt.ylabel('K/D')
+    plt.legend()
+    plt.title('Deathmatch K/D for {username}'.format(username=username))
+    plt.show()
+
+
 def requests_retry_session(retries=5, backoff_factor=1, status_forcelist=(500, 502, 504), session=None,):
     session = session or requests.Session()
     retry = Retry(
@@ -240,15 +308,6 @@ def requests_retry_session(retries=5, backoff_factor=1, status_forcelist=(500, 5
     session.mount('https://', adapter)
     return session
 
-
-actmap = {
-    '1.1': "3f61c772-4560-cd3f-5d3f-a7ab5abda6b3",
-    '1.2': "0530b9c4-4980-f2ee-df5d-09864cd00542",
-    '1.3': "46ea6166-4573-1128-9cea-60a15640059b",
-    '2.1': "97b6e739-44cc-ffa7-49ad-398ba502ceb0",
-    '2.2': "ab57ef51-4e59-da91-cc8d-51a5a2b9b8ff",
-    '2.3': "52e9749a-429b-7060-99fe-4595426a0cf7",
-}
 
 rankmap = {
     0: 'Unranked',
@@ -270,6 +329,10 @@ rankmap = {
     18: 'Diamond 1',
     19: 'Diamond 2',
     20: 'Diamond 3',
+    21: 'Immortal 1',
+    22: 'Immortal 2',
+    23: 'Immortal 3',
+    24: 'Radiant'
 }
 
 mapmap = {
@@ -298,6 +361,7 @@ agentmap = {
     'a3bfb853-43b2-7238-a4f1-ad90e9e46bcc': 'Reyna',
     '8e253930-4c05-31dd-1b6c-968525494517': 'Omen',
     'add6443a-41bd-e414-f6ad-e58d267f4e95': 'Jett',
+    '601dbbe7-43ce-be57-2a40-4abd24953621': 'Kay/O',
 }
 
 
@@ -314,14 +378,17 @@ def valstats(username, password, zone, plot, print_, db_name):
     session, headers = login(username, password)
     user_id = get_user_id(session, headers)
     matches = file_to_object(db_name) or {}
-    new_matches = get_comp_history(session, headers, zone, exclude=list(matches.keys()))
+    new_matches = get_game_history(session, headers, zone, exclude=list(matches.keys()))
     matches.update(new_matches)
     object_to_file(matches, db_name)
-    matches = process_comp_matches(matches, user_id)
+    comp_matches = process_comp_matches(matches, user_id)
+    dm_matches = process_dm_matches(matches, user_id)
     if print_:
-        print_games(matches)
+        print_dm_games(dm_matches)
+        print_comp_games(comp_matches)
     if plot:
-        plot_games(username, matches)
+        plot_dm_games(username, dm_matches)
+        plot_comp_games(username, comp_matches)
 
 
 if __name__ == '__main__':

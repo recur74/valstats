@@ -295,7 +295,7 @@ def plot_dm_games(username, games):
     # plt.yticks(list(rankmap.keys()), list(rankmap.values()))
     plt.xticks(dates, en_dates)
     plt.gca().xaxis.set_major_locator(plt.MaxNLocator(10))
-    plt.grid(b=True, which='minor', axis='y', color='#EEEEEE', linestyle='-')
+    plt.grid(b=True, which='major', axis='y', color='#EEEEEE', linestyle='-')
 
     plt.xlabel('Matches')
     plt.ylabel('K/D')

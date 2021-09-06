@@ -1,5 +1,6 @@
 #! /usr/bin/env python3
 
+import numpy as np
 import sys
 import re
 import requests
@@ -13,6 +14,7 @@ from datetime import datetime
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 
+RUNNING_AVERAGE = 50
 
 def file_to_object(save_file):
     print("Reading database")
@@ -224,8 +226,8 @@ def print_dm_games(games: list):
         print(gamedate.isoformat(sep=' ', timespec='minutes'))
         print(game['agent'] + '@' + game['map'])
         print("{}/{} - {}".format(game['kills'], game['deaths'], game['kd']))
-        if len(running_average) > 30:
-            running_average = running_average[-30:]
+        if len(running_average) > RUNNING_AVERAGE:
+            running_average = running_average[-RUNNING_AVERAGE:]
             print("Running average: {}".format(round(sum(running_average) / len(running_average), 2)))
         print("-----")
 
@@ -247,11 +249,15 @@ def plot_comp_games(username: str, games: list):
     mmr = [g['mmr_raw'] for g in games]
     ranks = [g['rank_raw'] for g in games]
     dates = [g['date'] for g in games]
+    en_dates = [i for i, d in enumerate(dates)]
 
     plt.plot(dates, mmr, label="Est. MMR")
     plt.plot(dates, ranks, label="Rank")
+    z = np.polyfit(en_dates, ranks, 1)
+    p = np.poly1d(z)
+    plt.plot(en_dates, p(en_dates), "r--")
     plt.yticks(list(rankmap.keys()), list(rankmap.values()))
-    plt.xticks(dates, [i for i, d in enumerate(dates)])
+    plt.xticks(dates, en_dates)
     plt.gca().xaxis.set_major_locator(plt.MaxNLocator(10))
     plt.grid(b=True, which='major', axis='y', color='#EEEEEE', linestyle='-')
 
@@ -272,18 +278,22 @@ def plot_dm_games(username, games):
     running_avg = []
     for game in games:
         running_avg.append(game['kd'])
-        if len(running_avg) > 30:
-            running_avg = running_avg[-30:]
+        if len(running_avg) > RUNNING_AVERAGE:
+            running_avg = running_avg[-RUNNING_AVERAGE:]
             ra.append(round(sum(running_avg) / len(running_avg), 2))
         else:
             ra.append(None)
 
     dates = [g['date'] for g in games]
+    en_dates = [i for i, d in enumerate(dates)]
     plt.plot(dates, kd, label="K/D")
     plt.plot(dates, ra, label="Running Average")
+    z = np.polyfit(en_dates, kd, 1)
+    p = np.poly1d(z)
+    plt.plot(en_dates, p(en_dates), "r--")
 
     # plt.yticks(list(rankmap.keys()), list(rankmap.values()))
-    plt.xticks(dates, [i for i, d in enumerate(dates)])
+    plt.xticks(dates, en_dates)
     plt.gca().xaxis.set_major_locator(plt.MaxNLocator(10))
     plt.grid(b=True, which='minor', axis='y', color='#EEEEEE', linestyle='-')
 

@@ -287,13 +287,14 @@ def plot_dm_games(username, games):
 
     dates = [g['date'] for g in games]
     en_dates = [i for i, d in enumerate(dates)]
-    plt.plot(dates, kd, label="K/D")
-    plt.plot(dates, ra, label="Running Average")
+    plt.scatter(dates, kd, color='blue', label="K/D")
+    plt.plot(dates, ra, color='orange', label="Running Average")
     z = np.polyfit(en_dates, kd, 1)
     p = np.poly1d(z)
     plt.plot(en_dates, p(en_dates), "r--", label="K/D Trend")
 
     # plt.yticks(list(rankmap.keys()), list(rankmap.values()))
+    plt.ylim(bottom=0)
     plt.xticks(dates, en_dates)
     plt.gca().xaxis.set_major_locator(plt.MaxNLocator(10))
     plt.grid(b=True, which='major', axis='y', color='#EEEEEE', linestyle='-')

@@ -16,6 +16,7 @@ from requests.packages.urllib3.util.retry import Retry
 
 RUNNING_AVERAGE = 50
 
+
 def file_to_object(save_file):
     print("Reading database")
     try:
@@ -352,6 +353,7 @@ mapmap = {
     'Bonsai': 'Split',
     'Ascent': 'Ascent',
     'Foxtrot': 'Breeze',
+    'Canyon': 'Fracture',
 }
 
 agentmap = {

@@ -15,7 +15,7 @@ Options:
   --db-name TEXT        Database name and path. Default is ./{username}.db
   --help                Show this message and exit.
 ```
-![plot](![dm](https://user-images.githubusercontent.com/36073835/133110518-55bcd05b-28e4-4118-a248-c5fcd2e78c96.png)
+![plot](https://user-images.githubusercontent.com/36073835/133110518-55bcd05b-28e4-4118-a248-c5fcd2e78c96.png)
 ![rank](https://user-images.githubusercontent.com/36073835/133110547-b9913a40-f3f4-4f55-9fc5-1247fd8dec9c.png)
 MMR is calculated as the average rank of all other players in the match.
 

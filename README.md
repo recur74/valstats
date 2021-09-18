@@ -2,7 +2,7 @@
 Plots a users Valorant Deathmatches, showing k/d changes over time.
 Plots a users Valorant Competitive games, comparing the players Ranked Rating with an estimated MMR.
 
-```pip install requests matplotlib click frozendict```
+```pip install requests matplotlib click frozendict numpy```
 
 ```
 $ ./valstats.py

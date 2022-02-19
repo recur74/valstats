@@ -52,12 +52,12 @@ class Auth:
             data = await r.json()
 
         user_id = data['sub']
-        print(data)
+        # print(data)
         name = data['acct']['game_name']
         tagline = data['acct']['tag_line']
         IGN = f"{name}#{tagline}"
 
-        print('User ID: ' + user_id)
+        # print('User ID: ' + user_id)
         headers['X-Riot-Entitlements-JWT'] = entitlements_token
 
         body = {"id_token": id_token}

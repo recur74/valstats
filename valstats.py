@@ -46,11 +46,11 @@ def draw_progress_bar(percent, barLen = 20):
     sys.stdout.flush()
 
 
-async def login(username, password):
+def login(username, password):
     print("Logging in")
     a = Auth(username, password)
     session = requests_retry_session()
-    puuid, headers, region, ign = await a.authenticate()
+    puuid, headers, region, ign = asyncio.run(a.authenticate())
     return session, headers
 
 
@@ -348,7 +348,7 @@ agentmap = {
 def valstats(username, password, zone, plot, print_, db_name):
     if db_name is None:
         db_name = username + '.db'
-    session, headers = asyncio.run(login(username, password))
+    session, headers = login(username, password)
     user_id = get_user_id(session, headers)
     matches = file_to_object(db_name) or {}
     new_matches = get_game_history(session, headers, zone, exclude=list(matches.keys()))

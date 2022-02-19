@@ -1,4 +1,4 @@
-#! /usr/bin/env python3
+#! /usr/bin/env python
 
 import numpy as np
 import sys
@@ -202,6 +202,8 @@ def print_comp_games(games: list):
 
 def plot_comp_games(username: str, games: list):
     games = sorted(games, key=lambda i: i['date'])
+    if not games:
+        return
     mmr = [g['mmr_raw'] for g in games]
     ranks = [g['rank_raw'] for g in games]
     dates = [g['date'] for g in games]
@@ -228,6 +230,8 @@ def plot_comp_games(username: str, games: list):
 
 def plot_dm_games(username, games):
     games = sorted(games, key=lambda i: i['date'])
+    if not games:
+        return
     kd = [g['kd'] for g in games]
     ra = []
 
@@ -330,6 +334,7 @@ agentmap = {
     '8e253930-4c05-31dd-1b6c-968525494517': 'Omen',
     'add6443a-41bd-e414-f6ad-e58d267f4e95': 'Jett',
     '601dbbe7-43ce-be57-2a40-4abd24953621': 'Kay/O',
+    '22697a3d-45bf-8dd7-4fec-84a9e28c69d7': 'Chamber',
 }
 
 

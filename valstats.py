@@ -50,7 +50,8 @@ def login(username, password):
     print("Logging in")
     a = Auth(username, password)
     session = requests_retry_session()
-    puuid, headers, region, ign = asyncio.run(a.authenticate())
+    _, headers,_ ,_= asyncio.get_event_loop().run_until_complete(a.authenticate())
+    # puuid, headers, region, ign = asyncio.run(a.authenticate())
     return session, headers
 
 

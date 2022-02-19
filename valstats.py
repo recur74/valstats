@@ -336,6 +336,7 @@ agentmap = {
     'add6443a-41bd-e414-f6ad-e58d267f4e95': 'Jett',
     '601dbbe7-43ce-be57-2a40-4abd24953621': 'Kay/O',
     '22697a3d-45bf-8dd7-4fec-84a9e28c69d7': 'Chamber',
+    'bb2a4828-46eb-8cd1-e765-15848195d751': 'Neon',
 }
 
 

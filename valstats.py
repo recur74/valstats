@@ -13,6 +13,8 @@ from frozendict import frozendict
 from datetime import datetime
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
+import asyncio
+from auth import Auth
 
 RUNNING_AVERAGE = 50
 
@@ -44,63 +46,16 @@ def draw_progress_bar(percent, barLen = 20):
     sys.stdout.flush()
 
 
-def login(username, password):
-
-    def _start_session():
-        auth_url = 'https://auth.riotgames.com/api/v1/authorization'
-        session = requests_retry_session()
-        # Start authorization session
-        data = {
-            'client_id': 'play-valorant-web-prod',
-            'nonce': '1',
-            'redirect_uri': 'https://playvalorant.com/opt_in',
-            'response_type': 'token id_token',
-        }
-        session.post(auth_url, json=data).json()
-        return session
-
-    def _get_auth_token(session, username, password):
-        # Authorize and get access-token
-        auth_url = 'https://auth.riotgames.com/api/v1/authorization'
-        data = {
-            'type': 'auth',
-            'username': f'{username}',
-            'password': f'{password}',
-        }
-        response = session.put(auth_url, json=data).json()
-        # print(response)
-
-        pattern = re.compile(
-            'access_token=((?:[a-zA-Z]|\d|\.|-|_)*).*id_token=((?:[a-zA-Z]|\d|\.|-|_)*).*expires_in=(\d*)')
-        response = pattern.findall(response['response']['parameters']['uri'])[0]
-        access_token = response[0]
-        # print('Access Token: ' + access_token)
-        return access_token
-
-    def _get_request_headers(session, auth_token):
-        entitlement_url = 'https://entitlements.auth.riotgames.com/api/token/v1'
-        headers = {
-            'Authorization': f'Bearer {auth_token}',
-            'X-Riot-ClientPlatform': 'ew0KCSJwbGF0Zm9ybVR5cGUiOiAiUEMiLA0KCSJwbGF0Zm9ybU9TIjogIldpbmRvd3MiLA0KCSJwbGF0Z'
-                                     'm9ybU9TVmVyc2lvbiI6ICIxMC4wLjE5MDQyLjEuMjU2LjY0Yml0IiwNCgkicGxhdGZvcm1DaGlwc2V0Ij'
-                                     'ogIlVua25vd24iDQp9',
-            'X-Riot-ClientVersion': 'release-02.01-shipping-6-511946',
-        }
-        response = session.post(entitlement_url, headers=headers, json={}).json()
-        entitlements_token = response['entitlements_token']
-        headers['X-Riot-Entitlements-JWT'] = entitlements_token
-        # print('Entitlements Token: ' + entitlements_token)
-        return headers
-
+async def login(username, password):
     print("Logging in")
-    session = _start_session()
-    auth_token = _get_auth_token(session, username, password)
-    headers = _get_request_headers(session, auth_token)
+    a = Auth(username, password)
+    session = requests_retry_session()
+    puuid, headers, region, ign = await a.authenticate()
     return session, headers
 
 
 def freezeargs(func):
-    """Transform mutable dictionnary
+    """Transform mutable dictionary
     Into immutable
     Useful to be compatible with cache
     """
@@ -388,7 +343,7 @@ agentmap = {
 def valstats(username, password, zone, plot, print_, db_name):
     if db_name is None:
         db_name = username + '.db'
-    session, headers = login(username, password)
+    session, headers = asyncio.run(login(username, password))
     user_id = get_user_id(session, headers)
     matches = file_to_object(db_name) or {}
     new_matches = get_game_history(session, headers, zone, exclude=list(matches.keys()))

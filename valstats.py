@@ -230,9 +230,10 @@ def plot_comp_games(username: str, games: list):
 
     plt.plot(dates, mmr, label="Est. MMR")
     plt.plot(dates, ranks, label="Rank")
-    z = np.polyfit(en_dates, mmr, 1)
-    p = np.poly1d(z)
-    plt.plot(en_dates, p(en_dates), "r--", label="Rank Trend")
+    if len(en_dates) > 1:
+        z = np.polyfit(en_dates, mmr, 1)
+        p = np.poly1d(z)
+        plt.plot(en_dates, p(en_dates), "r--", label="Rank Trend")
     plt.yticks(list(rankmap.keys()), list(rankmap.values()))
     plt.xticks(dates, en_dates)
     plt.gca().xaxis.set_major_locator(plt.MaxNLocator(10))

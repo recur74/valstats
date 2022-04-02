@@ -153,17 +153,31 @@ def process_comp_matches(matches, user_id):
     return games
 
 
+def _get_main_weapon(match, user_id):
+    player_stats = next(ps for ps in match['roundResults'][0]['playerStats'] if ps['subject'] == user_id)
+    print(player_stats)
+    weapons = {}
+    for k in player_stats.get('kills', []):
+        weapon = k.get('finishingDamage', {}).get('damageItem')
+        if not weapons.get(weapon):
+            weapons[weapon] = 0
+        weapons[weapon] += 1
+    return weaponmap[max(weapons, key=weapons.get)]
+
+
 def process_dm_matches(matches, user_id):
     print("Processing deathmatch games")
     games = []
     for match in matches.values():
         if match['matchInfo']['queueID'] != 'deathmatch':
             continue
+        main_weapon = _get_main_weapon(match, user_id)
         starttime = datetime.utcfromtimestamp(match.get('matchInfo').get('gameStartMillis') / 1000).replace(
             tzinfo=tz.tzutc()).isoformat()
         map = mapmap[match.get('matchInfo').get('mapId').split('/')[-1:][0]]
         game = {'date': starttime,
-                'map': map}
+                'map': map,
+                'weapon': main_weapon}
         me = next(p for p in match.get('players') if p.get('subject') == user_id)
         game['agent'] = agentmap.get(me.get('characterId'), me.get('characterId'))
         game['kills'] = me['stats']['kills']
@@ -182,6 +196,7 @@ def print_dm_games(games: list):
         gamedate = parser.parse(game['date']).astimezone().replace(tzinfo=None)
         print(gamedate.isoformat(sep=' ', timespec='minutes'))
         print(game['agent'] + '@' + game['map'])
+        print(game['weapon'])
         print("{}/{} - {}".format(game['kills'], game['deaths'], game['kd']))
         if len(running_average) > RUNNING_AVERAGE:
             running_average = running_average[-RUNNING_AVERAGE:]
@@ -230,6 +245,17 @@ def plot_comp_games(username: str, games: list):
 
 
 def plot_dm_games(username, games):
+    games_w = {}
+    for g in games:
+        weapon = g.get('weapon')
+        if not games_w.get(weapon):
+            games_w[weapon] = []
+        games_w[weapon].append(g)
+    for w, g in games_w.items():
+        plot_dm_games_for_weapon(username, g, w)
+
+
+def plot_dm_games_for_weapon(username, games, weapon):
     games = sorted(games, key=lambda i: i['date'])
     if not games:
         return
@@ -262,7 +288,7 @@ def plot_dm_games(username, games):
     plt.xlabel('Matches')
     plt.ylabel('K/D')
     plt.legend()
-    plt.title('Deathmatch K/D for {username}'.format(username=username))
+    plt.title('Deathmatch K/D for {username} with {weapon}'.format(username=username, weapon=weapon))
     plt.show()
 
 
@@ -339,6 +365,15 @@ agentmap = {
     'bb2a4828-46eb-8cd1-e765-15848195d751': 'Neon',
 }
 
+weaponmap = {
+    '9C82E19D-4575-0200-1A81-3EACF00CF872': 'Vandal',
+    'EE8E8D15-496B-07AC-E5F6-8FAE5D4C7B1A': 'Phantom',
+    'E336C6B8-418D-9340-D77F-7A9E4CFE0702': 'Sheriff',
+    'AE3DE142-4D85-2547-DD26-4E90BED35CF7': 'Bulldog',
+    '4ADE7FAA-4CF1-8376-95EF-39884480959B': 'Guardian?'
+
+
+}
 
 @click.command()
 @click.argument('username')  # help="Your riot login username. Not in-game user")

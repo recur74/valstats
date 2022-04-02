@@ -155,7 +155,7 @@ def process_comp_matches(matches, user_id):
 
 def _get_main_weapon(match, user_id):
     player_stats = next(ps for ps in match['roundResults'][0]['playerStats'] if ps['subject'] == user_id)
-    print(player_stats)
+    # print(player_stats)
     weapons = {}
     for k in player_stats.get('kills', []):
         weapon = k.get('finishingDamage', {}).get('damageItem')

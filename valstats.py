@@ -162,7 +162,10 @@ def _get_main_weapon(match, user_id):
         if not weapons.get(weapon):
             weapons[weapon] = 0
         weapons[weapon] += 1
-    return weaponmap[max(weapons, key=weapons.get)]
+    if not weapons:
+        return "Unknown"
+    main_weapon = max(weapons, key=weapons.get)
+    return weaponmap[main_weapon] if main_weapon else main_weapon
 
 
 def process_dm_matches(matches, user_id):

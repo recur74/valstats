@@ -230,10 +230,9 @@ def plot_comp_games(username: str, games: list):
 
     plt.plot(dates, mmr, label="Est. MMR")
     plt.plot(dates, ranks, label="Rank")
-    if len(en_dates) > 1:
-        z = np.polyfit(en_dates, mmr, 1)
-        p = np.poly1d(z)
-        plt.plot(en_dates, p(en_dates), "r--", label="Rank Trend")
+    z = np.polyfit(en_dates, mmr, 1)
+    p = np.poly1d(z)
+    plt.plot(en_dates, p(en_dates), "r--", label="Rank Trend")
     plt.yticks(list(rankmap.keys()), list(rankmap.values()))
     plt.xticks(dates, en_dates)
     plt.gca().xaxis.set_major_locator(plt.MaxNLocator(10))
@@ -279,9 +278,10 @@ def plot_dm_games_for_weapon(username, games, weapon):
     en_dates = [i for i, d in enumerate(dates)]
     plt.scatter(dates, kd, color='blue', label="K/D")
     plt.plot(dates, ra, color='orange', label="Running Average")
-    z = np.polyfit(en_dates, kd, 1)
-    p = np.poly1d(z)
-    plt.plot(en_dates, p(en_dates), "r--", label="K/D Trend")
+    if len(en_dates) > 1:
+        z = np.polyfit(en_dates, kd, 1)
+        p = np.poly1d(z)
+        plt.plot(en_dates, p(en_dates), "r--", label="K/D Trend")
 
     # plt.yticks(list(rankmap.keys()), list(rankmap.values()))
     plt.ylim(bottom=0)

@@ -247,15 +247,17 @@ def plot_comp_games(username: str, games: list):
     plt.show()
 
 
-def plot_dm_games(username, games):
+def plot_dm_games(username, games, weapon=None):
     games_w = {}
-    for g in games:
-        weapon = g.get('weapon')
-        if not games_w.get(weapon):
-            games_w[weapon] = []
-        games_w[weapon].append(g)
-    for w, g in games_w.items():
-        plot_dm_games_for_weapon(username, g, w)
+    if weapon:
+        for g in games:
+            _weapon = g.get('weapon')
+            if not games_w.get(_weapon):
+                games_w[_weapon] = []
+            games_w[_weapon].append(g)
+        plot_dm_games_for_weapon(username, games_w[weapon], weapon)
+    else:
+        plot_dm_games_for_weapon(username, games, "all weapons")
 
 
 def plot_dm_games_for_weapon(username, games, weapon):
@@ -386,9 +388,11 @@ weaponmap = {
 @click.option('--plot/--no-plot', default=True, help='Plot the result')
 @click.option('--print/--no-print', 'print_', default=True, help='Print the games to terminal')
 @click.option('--db-name', default=None, help="Database name and path. Default is ./{username}.db")
-def valstats(username, password, zone, plot, print_, db_name):
+@click.option('--weapon', default=None, help="Show dm stats for this weapon only")
+def valstats(username, password, zone, plot, print_, db_name, weapon):
     if db_name is None:
         db_name = username + '.db'
+    weapon = weapon.title() if weapon else weapon
     session, headers = login(username, password)
     user_id = get_user_id(session, headers)
     matches = file_to_object(db_name) or {}
@@ -401,7 +405,7 @@ def valstats(username, password, zone, plot, print_, db_name):
         print_dm_games(dm_matches)
         print_comp_games(comp_matches)
     if plot:
-        plot_dm_games(username, dm_matches)
+        plot_dm_games(username, dm_matches, weapon)
         plot_comp_games(username, comp_matches)
 
 

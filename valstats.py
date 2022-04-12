@@ -391,7 +391,7 @@ weaponmap = {
 @click.option('--plot/--no-plot', default=True, help='Plot the result')
 @click.option('--print/--no-print', 'print_', default=True, help='Print the games to terminal')
 @click.option('--db-name', default=None, help="Database name and path. Default is ./{username}.db")
-@click.option('--weapon', default=None, help="Show dm stats for this weapon only", type=click.Choice(weaponmap.values()))
+@click.option('--weapon', default=None, help="Show dm stats for this weapon only", type=click.Choice([w.lower() for w in weaponmap.values()]))
 def valstats(username, password, zone, plot, print_, db_name, weapon):
     if db_name is None:
         db_name = username + '.db'

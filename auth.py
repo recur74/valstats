@@ -1,7 +1,25 @@
 import re
 import aiohttp
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
+import requests
 
 User_agent = 'RiotClient/43.0.1.4195386.4190634 rso-auth (Windows;10;;Professional, x64)'
+
+
+def requests_retry_session(retries=5, backoff_factor=1, status_forcelist=(500, 502, 504), session=None,):
+    session = session or requests.Session()
+    retry = Retry(
+        total=retries,
+        read=retries,
+        connect=retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=status_forcelist,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+    return session
 
 
 class Auth:
@@ -9,6 +27,8 @@ class Auth:
     def __init__(self, username, password):
         self.username = username
         self.password = password
+        self.headers = None
+        self.session = requests_retry_session()
 
     async def authenticate(self):
         session = aiohttp.ClientSession()
@@ -59,6 +79,7 @@ class Auth:
 
         # print('User ID: ' + user_id)
         headers['X-Riot-Entitlements-JWT'] = entitlements_token
+        headers["X-Riot-ClientPlatform"] = "ew0KCSJwbGF0Zm9ybVR5cGUiOiAiUEMiLA0KCSJwbGF0Zm9ybU9TIjogIldpbmRvd3MiLA0KCSJwbGF0Zm9ybU9TVmVyc2lvbiI6ICIxMC4wLjE5MDQyLjEuMjU2LjY0Yml0IiwNCgkicGxhdGZvcm1DaGlwc2V0IjogIlVua25vd24iDQp9"
 
         body = {"id_token": id_token}
 
@@ -68,4 +89,5 @@ class Auth:
             region = data['affinities']['live']
 
         await session.close()
+        self.headers = headers
         return user_id, headers, region, IGN

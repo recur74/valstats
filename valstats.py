@@ -3,7 +3,6 @@
 import numpy as np
 import sys
 import re
-import requests
 import matplotlib.pyplot as plt
 import click
 from dateutil import parser, tz
@@ -11,8 +10,6 @@ import pickle
 from functools import wraps, lru_cache
 from frozendict import frozendict
 from datetime import datetime
-from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
 import asyncio
 from auth import Auth
 
@@ -49,10 +46,8 @@ def draw_progress_bar(percent, barLen = 20):
 def login(username, password):
     print("Logging in")
     a = Auth(username, password)
-    session = requests_retry_session()
-    _, headers,_ ,_= asyncio.get_event_loop().run_until_complete(a.authenticate())
-    # puuid, headers, region, ign = asyncio.run(a.authenticate())
-    return session, headers
+    asyncio.get_event_loop().run_until_complete(a.authenticate())
+    return a
 
 
 def freezeargs(func):
@@ -71,17 +66,17 @@ def freezeargs(func):
 
 @freezeargs
 @lru_cache
-def get_user_id(session, headers):
+def get_user_id(auth):
     print("Getting user id")
-    response = session.post('https://auth.riotgames.com/userinfo', headers=headers, json={}).json()
+    response = auth.session.post('https://auth.riotgames.com/userinfo', headers=auth.headers, json={}).json()
     user_id = response['sub']
     return user_id
 
 
-def get_game_history(session, headers, zone='eu', exclude=[]):
+def get_game_history(auth, zone='eu', exclude=[]):
     print("Fetching matches")
 
-    user_id = get_user_id(session, headers)
+    user_id = get_user_id(auth)
 
     match_ids = []
 
@@ -90,8 +85,8 @@ def get_game_history(session, headers, zone='eu', exclude=[]):
     endindex = startindex + size
     url = 'https://pd.{zone}.a.pvp.net/match-history/v1/history/{user_id}?startIndex={startindex}&endIndex={endindex}'
     # url = 'https://pd.{zone}.a.pvp.net/mmr/v1/players/{user_id}/competitiveupdates?startIndex={startindex}&endIndex={endindex}'
-    response = session.get(url.format(zone=zone, user_id=user_id, startindex=startindex, endindex=endindex),
-                           headers=headers).json()
+    response = auth.session.get(url.format(zone=zone, user_id=user_id, startindex=startindex, endindex=endindex),
+                           headers=auth.headers).json()
     # Matches
     root = 'History'
     # root = 'Matches'
@@ -99,8 +94,8 @@ def get_game_history(session, headers, zone='eu', exclude=[]):
         match_ids.extend([m.get('MatchID') for m in response.get(root, [])])
         startindex += size
         endindex += size
-        response = session.get(url.format(zone=zone, user_id=user_id, startindex=startindex, endindex=endindex),
-                               headers=headers).json()
+        response = auth.session.get(url.format(zone=zone, user_id=user_id, startindex=startindex, endindex=endindex),
+                               headers=auth.headers).json()
     match_ids.extend([m.get('MatchID') for m in response.get(root, [])])
     match_ids = [m for m in match_ids if m not in exclude]
 
@@ -110,12 +105,14 @@ def get_game_history(session, headers, zone='eu', exclude=[]):
     match_info = 'https://pd.{zone}.a.pvp.net/match-details/v1/matches/{match_id}'
     for i, mid in enumerate(match_ids):
         draw_progress_bar((i + 1) / len(match_ids))
-        response = session.get(match_info.format(zone=zone, match_id=mid), headers=headers, timeout=5).json()
+        response = auth.session.get(match_info.format(zone=zone, match_id=mid), headers=auth.headers, timeout=5).json()
         #if response.get('matchInfo', {}).get('isRanked') and \
         #        response.get('matchInfo', {}).get('queueID') == queue:
         matches[mid] = response
-    print('')
-    print("Found {count} new matches".format(count=len(matches.keys())))
+    for i, m in enumerate(matches.values()):
+        draw_progress_bar((i + 1) / len(matches))
+        for p in m.get('players'):
+            insert_competitive_tier(auth, p)
     return matches
 
 
@@ -168,7 +165,7 @@ def _get_main_weapon(match, user_id):
     return weaponmap.get(main_weapon, main_weapon)
 
 
-def process_dm_matches(matches, user_id):
+def process_dm_matches(auth, matches, user_id):
     print("Processing deathmatch games")
     games = []
     for match in matches.values():
@@ -181,14 +178,31 @@ def process_dm_matches(matches, user_id):
         game = {'date': starttime,
                 'map': map,
                 'weapon': main_weapon}
+        tiers = [p.get('competitiveTier') for p in match.get('players') if p.get('subject') != user_id]
+        avg_tier = sum(tiers) / len(tiers) if len(tiers) else 11
         me = next(p for p in match.get('players') if p.get('subject') == user_id)
         game['agent'] = agentmap.get(me.get('characterId'), me.get('characterId'))
         game['kills'] = me['stats']['kills']
         game['deaths'] = me['stats']['deaths']
         game['score'] = me['stats']['score']
+        game['assists'] = me['stats']['assists']
+        game['avg_tier'] = avg_tier
+        game['performance'] = round(((game['kills'] * 0.75 + game['assists'] * 0.25) * avg_tier) / (game['deaths']), 2)
         game['kd'] = round(game['kills'] / game['deaths'], 2)
         games.append(game)
     return games
+
+
+def insert_competitive_tier(auth, player, zone='eu'):
+    # print(player)
+    if player.get('competitiveTier', 0) != 0:
+        return player
+    user_id = player.get('subject')
+    url5 = "https://pd.{zone}.a.pvp.net/mmr/v1/players/{user_id}/competitiveupdates?startIndex=0&endIndex=1&queue=competitive"
+
+    response = auth.session.get(url5.format(zone=zone, user_id=user_id), headers=auth.headers).json()
+    previous_match_rank = next(iter(m.get("TierAfterUpdate", 0) for m in response.get('Matches', [])), 0)
+    player['competitiveTier'] = previous_match_rank
 
 
 def print_dm_games(games: list):
@@ -247,7 +261,7 @@ def plot_comp_games(username: str, games: list):
     plt.show()
 
 
-def plot_dm_games(username, games, weapon=None):
+def plot_dm_games(username, games, weapon=None, metric='kd'):
     games_w = {}
     if weapon:
         for g in games:
@@ -255,21 +269,21 @@ def plot_dm_games(username, games, weapon=None):
             if not games_w.get(_weapon):
                 games_w[_weapon] = []
             games_w[_weapon].append(g)
-        plot_dm_games_for_weapon(username, games_w[weapon], weapon)
+        plot_dm_games_for_weapon(username, games_w[weapon], weapon, metric)
     else:
-        plot_dm_games_for_weapon(username, games, "all weapons")
+        plot_dm_games_for_weapon(username, games, "all weapons", metric)
 
 
-def plot_dm_games_for_weapon(username, games, weapon):
+def plot_dm_games_for_weapon(username, games, weapon, metric='kd'):
     games = sorted(games, key=lambda i: i['date'])
     if not games:
         return
-    kd = [g['kd'] for g in games]
+    metric_values = [g[metric] for g in games]
     ra = []
 
     running_avg = []
     for game in games:
-        running_avg.append(game['kd'])
+        running_avg.append(game[metric])
         if len(running_avg) > RUNNING_AVERAGE:
             running_avg = running_avg[-RUNNING_AVERAGE:]
             ra.append(round(sum(running_avg) / len(running_avg), 2))
@@ -278,12 +292,12 @@ def plot_dm_games_for_weapon(username, games, weapon):
 
     dates = [g['date'] for g in games]
     en_dates = [i for i, d in enumerate(dates)]
-    plt.scatter(dates, kd, color='blue', label="K/D")
+    plt.scatter(dates, metric_values, color='blue', label=f"[{metric}]")
     plt.plot(dates, ra, color='orange', label="Running Average")
     if len(en_dates) > 1:
-        z = np.polyfit(en_dates, kd, 1)
+        z = np.polyfit(en_dates, metric_values, 1)
         p = np.poly1d(z)
-        plt.plot(en_dates, p(en_dates), "r--", label="K/D Trend")
+        plt.plot(en_dates, p(en_dates), "r--", label=f"{metric} Trend")
 
     # plt.yticks(list(rankmap.keys()), list(rankmap.values()))
     plt.ylim(bottom=0)
@@ -292,25 +306,10 @@ def plot_dm_games_for_weapon(username, games, weapon):
     plt.grid(b=True, which='major', axis='y', color='#EEEEEE', linestyle='-')
 
     plt.xlabel('Matches')
-    plt.ylabel('K/D')
+    plt.ylabel(metric)
     plt.legend()
-    plt.title('Deathmatch K/D for {username} with {weapon}'.format(username=username, weapon=weapon))
+    plt.title(f'Deathmatch {metric} for {username} with {weapon}'.format(username=username, weapon=weapon))
     plt.show()
-
-
-def requests_retry_session(retries=5, backoff_factor=1, status_forcelist=(500, 502, 504), session=None,):
-    session = session or requests.Session()
-    retry = Retry(
-        total=retries,
-        read=retries,
-        connect=retries,
-        backoff_factor=backoff_factor,
-        status_forcelist=status_forcelist,
-    )
-    adapter = HTTPAdapter(max_retries=retry)
-    session.mount('http://', adapter)
-    session.mount('https://', adapter)
-    return session
 
 
 rankmap = {
@@ -384,6 +383,7 @@ weaponmap = {
 
 }
 
+
 @click.command()
 @click.argument('username')  # help="Your riot login username. Not in-game user")
 @click.argument('password')
@@ -396,19 +396,20 @@ def valstats(username, password, zone, plot, print_, db_name, weapon):
     if db_name is None:
         db_name = username + '.db'
     weapon = weapon.title() if weapon else weapon
-    session, headers = login(username, password)
-    user_id = get_user_id(session, headers)
+    auth = login(username, password)
+    user_id = get_user_id(auth)
     matches = file_to_object(db_name) or {}
-    new_matches = get_game_history(session, headers, zone, exclude=list(matches.keys()))
+    new_matches = get_game_history(auth, zone, exclude=list(matches.keys()))
     matches.update(new_matches)
     object_to_file(matches, db_name)
     comp_matches = process_comp_matches(matches, user_id)
-    dm_matches = process_dm_matches(matches, user_id)
+    dm_matches = process_dm_matches(auth, matches, user_id)
     if print_:
         print_dm_games(dm_matches)
         print_comp_games(comp_matches)
     if plot:
-        plot_dm_games(username, dm_matches, weapon)
+        plot_dm_games(username, dm_matches, weapon, 'kd')
+        plot_dm_games(username, dm_matches, weapon, 'performance')
         plot_comp_games(username, comp_matches)
 
 

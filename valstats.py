@@ -110,10 +110,27 @@ def get_game_history(auth, zone='eu', exclude=[]):
         #if response.get('matchInfo', {}).get('isRanked') and \
         #        response.get('matchInfo', {}).get('queueID') == queue:
         matches[mid] = response
+    print("")
     for i, m in enumerate(matches.values()):
         draw_progress_bar((i + 1) / len(matches))
         for p in m.get('players'):
             insert_competitive_tier(auth, p)
+    print("")
+    return matches
+
+
+def backfill_tiers(auth, matches, size=100):
+    print(f"Backfilling tiers for last {size} matches")
+    if size > len(matches.values()):
+        splice = matches.values()
+    else:
+        splice = list(reversed(matches.values()))[:size]
+    for i, m in enumerate(splice):
+        draw_progress_bar((i + 1) / len(splice))
+        for j, p in enumerate(m.get('players')):
+            draw_progress_bar((j + 1) / len(m.get('players')))
+            insert_competitive_tier(auth, p)
+    print("")
     return matches
 
 
@@ -195,15 +212,13 @@ def process_dm_matches(auth, matches, user_id):
 
 
 def insert_competitive_tier(auth, player, zone='eu'):
-    # print(player)
     if player.get('competitiveTier', 0) != 0:
-        return player
+        return
     user_id = player.get('subject')
-    url5 = "https://pd.{zone}.a.pvp.net/mmr/v1/players/{user_id}/competitiveupdates?startIndex=0&endIndex=1&queue=competitive"
-
-    response = auth.session.get(url5.format(zone=zone, user_id=user_id), headers=auth.headers).json()
+    url = "https://pd.{zone}.a.pvp.net/mmr/v1/players/{user_id}/competitiveupdates?startIndex=0&endIndex=1&queue=competitive"
+    response = auth.session.get(url.format(zone=zone, user_id=user_id), headers=auth.headers, timeout=5).json()
     previous_match_rank = next(iter(m.get("TierAfterUpdate", 0) for m in response.get('Matches', [])), 0)
-    player['competitiveTier'] = previous_match_rank
+    player['competitiveTier'] = previous_match_rank if previous_match_rank != 0 else AVERAGE_TIER
 
 
 def print_dm_games(games: list):
@@ -369,6 +384,7 @@ agentmap = {
     '601dbbe7-43ce-be57-2a40-4abd24953621': 'Kay/O',
     '22697a3d-45bf-8dd7-4fec-84a9e28c69d7': 'Chamber',
     'bb2a4828-46eb-8cd1-e765-15848195d751': 'Neon',
+    'dade69b4-4f5a-8528-247b-219e5a1facd6': 'Fade',
 }
 
 weaponmap = {
@@ -393,13 +409,16 @@ weaponmap = {
 @click.option('--print/--no-print', 'print_', default=True, help='Print the games to terminal')
 @click.option('--db-name', default=None, help="Database name and path. Default is ./{username}.db")
 @click.option('--weapon', default=None, help="Show dm stats for this weapon only", type=click.Choice([w.lower() for w in weaponmap.values()]))
-def valstats(username, password, zone, plot, print_, db_name, weapon):
+@click.option('--backfill', default=None, help="Backfill tiers for old deathmatch games", type=int)
+def valstats(username, password, zone, plot, print_, db_name, weapon, backfill):
     if db_name is None:
         db_name = username + '.db'
     weapon = weapon.title() if weapon else weapon
     auth = login(username, password)
     user_id = get_user_id(auth)
     matches = file_to_object(db_name) or {}
+    if backfill:
+        backfill_tiers(auth, matches, size=backfill)
     new_matches = get_game_history(auth, zone, exclude=list(matches.keys()))
     matches.update(new_matches)
     object_to_file(matches, db_name)

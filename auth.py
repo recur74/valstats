@@ -7,7 +7,7 @@ import requests
 User_agent = 'RiotClient/43.0.1.4195386.4190634 rso-auth (Windows;10;;Professional, x64)'
 
 
-def requests_retry_session(retries=5, backoff_factor=1, status_forcelist=(500, 502, 504), session=None,):
+def requests_retry_session(retries=5, backoff_factor=0, status_forcelist=(500, 502, 504), session=None,):
     session = session or requests.Session()
     retry = Retry(
         total=retries,

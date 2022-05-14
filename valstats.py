@@ -1,17 +1,19 @@
 #! /usr/bin/env python
 
-import numpy as np
-import sys
-import re
-import matplotlib.pyplot as plt
-import click
-from dateutil import parser, tz
-import pickle
-from functools import wraps, lru_cache
-from frozendict import frozendict
-from datetime import datetime
 import asyncio
-from auth import Auth
+import pickle
+import sys
+import time
+from datetime import datetime
+from functools import wraps, lru_cache
+
+import click
+import matplotlib.pyplot as plt
+import numpy as np
+from dateutil import parser, tz
+from frozendict import frozendict
+
+from auth import Auth, MultiThread
 
 RUNNING_AVERAGE = 50
 AVERAGE_TIER = 11  # Silver 3
@@ -120,18 +122,22 @@ def get_game_history(auth, zone='eu', exclude=[]):
 
 
 def backfill_tiers(auth, matches, size=100):
-    print(f"Backfilling tiers for last {size} matches")
+    print(f"Backfilling tiers for last {size} games")
+    print(f"There are in total {len(matches.values())} games")
     if size > len(matches.values()):
         splice = matches.values()
     else:
         splice = list(reversed(matches.values()))[:size]
-    for i, m in enumerate(splice):
-        draw_progress_bar((i + 1) / len(splice))
-        for j, p in enumerate(m.get('players')):
-            draw_progress_bar((j + 1) / len(m.get('players')))
-            insert_competitive_tier(auth, p)
-    print("")
-    return matches
+    args = []
+    for m in splice:
+        for p in m.get('players'):
+            args.append((auth, p))
+    start = time.time()
+    t = MultiThread(insert_competitive_tier, args, queue_results=True, maxThreads=100)
+    t.start()
+    t.join()
+    end = time.time()
+    print("Time elapsed:", end - start)
 
 
 def process_comp_matches(matches, user_id):

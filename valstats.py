@@ -14,6 +14,7 @@ import asyncio
 from auth import Auth
 
 RUNNING_AVERAGE = 50
+AVERAGE_TIER = 11  # Silver 3
 
 
 def file_to_object(save_file):
@@ -178,8 +179,8 @@ def process_dm_matches(auth, matches, user_id):
         game = {'date': starttime,
                 'map': map,
                 'weapon': main_weapon}
-        tiers = [p.get('competitiveTier') for p in match.get('players') if p.get('subject') != user_id]
-        avg_tier = sum(tiers) / len(tiers) if len(tiers) else 11
+        tiers = [p.get('competitiveTier') or AVERAGE_TIER for p in match.get('players') if p.get('subject') != user_id]
+        avg_tier = sum(tiers) / len(tiers) if len(tiers) else AVERAGE_TIER
         me = next(p for p in match.get('players') if p.get('subject') == user_id)
         game['agent'] = agentmap.get(me.get('characterId'), me.get('characterId'))
         game['kills'] = me['stats']['kills']

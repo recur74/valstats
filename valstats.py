@@ -211,6 +211,7 @@ def process_dm_matches(auth, matches, user_id):
         game['score'] = me['stats']['score']
         game['assists'] = me['stats']['assists']
         game['avg_tier'] = avg_tier
+        # print(f"Average Tier: {rankmap.get(round(avg_tier))}")
         game['performance'] = round(((game['kills'] * 0.75 + game['assists'] * 0.25) * avg_tier) / (game['deaths']), 2)
         game['kd'] = round(game['kills'] / game['deaths'], 2)
         games.append(game)
@@ -237,6 +238,7 @@ def print_dm_games(games: list):
         print(game['agent'] + '@' + game['map'])
         print(game['weapon'])
         print("{}/{} - {}".format(game['kills'], game['deaths'], game['kd']))
+        print(f"{rankmap.get(round(game['avg_tier']))} - {game['performance']}")
         if len(running_average) > RUNNING_AVERAGE:
             running_average = running_average[-RUNNING_AVERAGE:]
             print("Running average: {}".format(round(sum(running_average) / len(running_average), 2)))
@@ -412,7 +414,7 @@ weaponmap = {
 @click.argument('password')
 @click.option('--zone', default='eu', help="Valorant zone (eu, na etc)")
 @click.option('--plot/--no-plot', default=True, help='Plot the result')
-@click.option('--print/--no-print', 'print_', default=True, help='Print the games to terminal')
+@click.option('--print/--no-print', 'print_', default=False, help='Print the games to terminal')
 @click.option('--db-name', default=None, help="Database name and path. Default is ./{username}.db")
 @click.option('--weapon', default=None, help="Show dm stats for this weapon only", type=click.Choice([w.lower() for w in weaponmap.values()]))
 @click.option('--backfill', default=None, help="Backfill tiers for old deathmatch games", type=int)

@@ -214,7 +214,7 @@ def process_dm_matches(auth, matches, user_id):
         game['assists'] = me['stats']['assists']
         game['avg_tier'] = avg_tier
         # print(f"Average Tier: {rankmap.get(round(avg_tier))}")
-        print(main_weapon)
+        # print(main_weapon)
         game['performance'] = round(
             ((game['kills'] * 1 + game['assists'] * 0.25) * avg_tier * weaponweight.get(main_weapon, 1.0)) / (
             game['deaths']), 2)
@@ -237,8 +237,9 @@ def print_dm_games(games: list):
     games = sorted(games, key=lambda i: i['date'])
     running_average = []
     for game in games:
-        running_average.append(game['kd'])
+        running_average.append(game['performance'])
         gamedate = parser.parse(game['date']).astimezone().replace(tzinfo=None)
+        print("DEATHMATCH")
         print(gamedate.isoformat(sep=' ', timespec='minutes'))
         print(game['agent'] + '@' + game['map'])
         print(game['weapon'])
@@ -254,6 +255,7 @@ def print_comp_games(games: list):
     games = sorted(games, key=lambda i: i['date'])
     for game in games:
         gamedate = parser.parse(game['date']).astimezone().replace(tzinfo=None)
+        print("RANKED")
         print(gamedate.isoformat(sep=' ', timespec='minutes'))
         print(game['agent'] + '@' + game['map'])
         print("Result: " + game['result'])
@@ -451,10 +453,10 @@ def valstats(username, password, zone, plot, print_, db_name, weapon, backfill):
     comp_matches = process_comp_matches(matches, user_id)
     dm_matches = process_dm_matches(auth, matches, user_id)
     if print_:
-        print_dm_games(dm_matches)
         print_comp_games(comp_matches)
+        print_dm_games(dm_matches)
     if plot:
-        plot_dm_games(username, dm_matches, weapon, 'kd')
+        # plot_dm_games(username, dm_matches, weapon, 'kd')
         plot_dm_games(username, dm_matches, weapon, 'performance')
         plot_comp_games(username, comp_matches)
 

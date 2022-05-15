@@ -34,7 +34,7 @@ def object_to_file(object, filename):
     pickle.dump(object, open(filename, "wb"), protocol=2)
 
 
-def draw_progress_bar(percent, barLen = 20):
+def draw_progress_bar(percent, barLen=20):
     sys.stdout.write("\r")
     progress = ""
     for i in range(barLen):
@@ -64,6 +64,7 @@ def freezeargs(func):
         args = tuple([frozendict(arg) if isinstance(arg, dict) else arg for arg in args])
         kwargs = {k: frozendict(v) if isinstance(v, dict) else v for k, v in kwargs.items()}
         return func(*args, **kwargs)
+
     return wrapped
 
 
@@ -89,7 +90,7 @@ def get_game_history(auth, zone='eu', exclude=[]):
     url = 'https://pd.{zone}.a.pvp.net/match-history/v1/history/{user_id}?startIndex={startindex}&endIndex={endindex}'
     # url = 'https://pd.{zone}.a.pvp.net/mmr/v1/players/{user_id}/competitiveupdates?startIndex={startindex}&endIndex={endindex}'
     response = auth.session.get(url.format(zone=zone, user_id=user_id, startindex=startindex, endindex=endindex),
-                           headers=auth.headers).json()
+                                headers=auth.headers).json()
     # Matches
     root = 'History'
     # root = 'Matches'
@@ -98,7 +99,7 @@ def get_game_history(auth, zone='eu', exclude=[]):
         startindex += size
         endindex += size
         response = auth.session.get(url.format(zone=zone, user_id=user_id, startindex=startindex, endindex=endindex),
-                               headers=auth.headers).json()
+                                    headers=auth.headers).json()
     match_ids.extend([m.get('MatchID') for m in response.get(root, [])])
     match_ids = [m for m in match_ids if m not in exclude]
 
@@ -109,7 +110,7 @@ def get_game_history(auth, zone='eu', exclude=[]):
     for i, mid in enumerate(match_ids):
         draw_progress_bar((i + 1) / len(match_ids))
         response = auth.session.get(match_info.format(zone=zone, match_id=mid), headers=auth.headers, timeout=5).json()
-        #if response.get('matchInfo', {}).get('isRanked') and \
+        # if response.get('matchInfo', {}).get('isRanked') and \
         #        response.get('matchInfo', {}).get('queueID') == queue:
         matches[mid] = response
     print("")
@@ -149,7 +150,8 @@ def process_comp_matches(matches, user_id):
         ranks = []
         winning_team = next((t for t in match['teams'] if t['won'] is True), None)
         scores = match['teams'][0]['roundsWon'], match['teams'][0]['roundsPlayed'] - match['teams'][0]['roundsWon']
-        starttime = datetime.utcfromtimestamp(match.get('matchInfo').get('gameStartMillis') / 1000).replace(tzinfo=tz.tzutc()).isoformat()
+        starttime = datetime.utcfromtimestamp(match.get('matchInfo').get('gameStartMillis') / 1000).replace(
+            tzinfo=tz.tzutc()).isoformat()
         map = mapmap[match.get('matchInfo').get('mapId').split('/')[-1:][0]]
         game = {'date': starttime,
                 'map': map}
@@ -212,7 +214,10 @@ def process_dm_matches(auth, matches, user_id):
         game['assists'] = me['stats']['assists']
         game['avg_tier'] = avg_tier
         # print(f"Average Tier: {rankmap.get(round(avg_tier))}")
-        game['performance'] = round(((game['kills'] * 0.75 + game['assists'] * 0.25) * avg_tier) / (game['deaths']), 2)
+        print(main_weapon)
+        game['performance'] = round(
+            ((game['kills'] * 1 + game['assists'] * 0.25) * avg_tier * weaponweight.get(main_weapon, 1.0)) / (
+            game['deaths']), 2)
         game['kd'] = round(game['kills'] / game['deaths'], 2)
         games.append(game)
     return games
@@ -408,6 +413,18 @@ weaponmap = {
 
 }
 
+weaponweight = {
+    'Vandal': 1.0,
+    'Phantom': 1.0,
+    'Sheriff': 1.15,
+    'Bulldog': 1.05,
+    'Guardian': 1.1,
+    'Marshal': 1.1,
+    'Operator': 0.95,
+    'Classic': 1.2,
+    'Ghost': 1.15,
+}
+
 
 @click.command()
 @click.argument('username')  # help="Your riot login username. Not in-game user")
@@ -416,7 +433,8 @@ weaponmap = {
 @click.option('--plot/--no-plot', default=True, help='Plot the result')
 @click.option('--print/--no-print', 'print_', default=False, help='Print the games to terminal')
 @click.option('--db-name', default=None, help="Database name and path. Default is ./{username}.db")
-@click.option('--weapon', default=None, help="Show dm stats for this weapon only", type=click.Choice([w.lower() for w in weaponmap.values()]))
+@click.option('--weapon', default=None, help="Show dm stats for this weapon only",
+              type=click.Choice([w.lower() for w in weaponmap.values()]))
 @click.option('--backfill', default=None, help="Backfill tiers for old deathmatch games", type=int)
 def valstats(username, password, zone, plot, print_, db_name, weapon, backfill):
     if db_name is None:

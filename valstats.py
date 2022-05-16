@@ -251,8 +251,9 @@ def print_dm_games(games: list):
     games = sorted(games, key=lambda i: i['date'])
     running_average = []
     for game in games:
-        running_average.append(game['kd'])
+        running_average.append(game['performance'])
         gamedate = parser.parse(game['date']).astimezone().replace(tzinfo=None)
+        print("DEATHMATCH")
         print(gamedate.isoformat(sep=' ', timespec='minutes'))
         print(game['agent'] + '@' + game['map'])
         print(game['weapon'])
@@ -268,6 +269,7 @@ def print_comp_games(games: list):
     games = sorted(games, key=lambda i: i['date'])
     for game in games:
         gamedate = parser.parse(game['date']).astimezone().replace(tzinfo=None)
+        print("RANKED")
         print(gamedate.isoformat(sep=' ', timespec='minutes'))
         print(game['agent'] + '@' + game['map'])
         print("Result: " + game['result'])

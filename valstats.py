@@ -191,6 +191,20 @@ def _get_main_weapon(match, user_id):
     return weaponmap.get(main_weapon, main_weapon)
 
 
+def get_dm_weight(main_weapon, avg_tier):
+    tier_damp = 1/22
+    weapon_damp = 6000
+    baseline_weapon = 'Vandal'
+
+    tier_weight = (tier_damp + 1/AVERAGE_TIER) / (tier_damp + 1/avg_tier)
+    # print(f"tier_weight for {avg_tier:.2f}: {tier_weight:.2f}")
+    weapon_weight = (weapon_damp + weaponprice[baseline_weapon]) / (weapon_damp + weaponprice[main_weapon])
+    # print(f"weapon_weight for {main_weapon}: {weapon_weight:.2f}")
+    # print(f"total weight: {tier_weight * weapon_weight:.2f}")
+    # print("")
+    return tier_weight * weapon_weight
+
+
 def process_dm_matches(auth, matches, user_id):
     print("Processing deathmatch games")
     games = []
@@ -205,7 +219,7 @@ def process_dm_matches(auth, matches, user_id):
                 'map': map,
                 'weapon': main_weapon}
         tiers = [p.get('competitiveTier') or AVERAGE_TIER for p in match.get('players') if p.get('subject') != user_id]
-        avg_tier = sum(tiers) / len(tiers) if len(tiers) else AVERAGE_TIER
+        avg_tier = round(sum(tiers) / len(tiers) if len(tiers) else AVERAGE_TIER, 2)
         me = next(p for p in match.get('players') if p.get('subject') == user_id)
         game['agent'] = agentmap.get(me.get('characterId'), me.get('characterId'))
         game['kills'] = me['stats']['kills']
@@ -214,9 +228,9 @@ def process_dm_matches(auth, matches, user_id):
         game['assists'] = me['stats']['assists']
         game['avg_tier'] = avg_tier
         # print(f"Average Tier: {rankmap.get(round(avg_tier))}")
-        print(main_weapon)
+        # print(main_weapon)
         game['performance'] = round(
-            ((game['kills'] * 1 + game['assists'] * 0.25) * avg_tier * weaponweight.get(main_weapon, 1.0)) / (
+            ((game['kills'] * 1 + game['assists'] * 0.25) * get_dm_weight(main_weapon, avg_tier)) / (
             game['deaths']), 2)
         game['kd'] = round(game['kills'] / game['deaths'], 2)
         games.append(game)
@@ -321,7 +335,8 @@ def plot_dm_games_for_weapon(username, games, weapon, metric='kd'):
 
     dates = [g['date'] for g in games]
     en_dates = [i for i, d in enumerate(dates)]
-    plt.scatter(dates, metric_values, color='blue', label=f"[{metric}]")
+    # plt.scatter(dates, [g['kd'] for g in games], color='gray', label=f"kd")
+    plt.scatter(dates, metric_values, color='blue', label=f"{metric}")
     plt.plot(dates, ra, color='orange', label="Running Average")
     if len(en_dates) > 1:
         z = np.polyfit(en_dates, metric_values, 1)
@@ -413,16 +428,17 @@ weaponmap = {
 
 }
 
-weaponweight = {
-    'Vandal': 1.0,
-    'Phantom': 1.0,
-    'Sheriff': 1.15,
-    'Bulldog': 1.05,
-    'Guardian': 1.1,
-    'Marshal': 1.1,
-    'Operator': 0.95,
-    'Classic': 1.2,
-    'Ghost': 1.15,
+weaponprice = {
+    'Vandal': 2900,
+    'Phantom': 2900,
+    'Sheriff': 800,
+    'Bulldog': 2050,
+    'Guardian': 2250,
+    'Marshal': 950,
+    'Operator': 4700,
+    'Classic': 400,
+    'Ghost': 500,
+    'Unknown': 2900,
 }
 
 
@@ -451,10 +467,10 @@ def valstats(username, password, zone, plot, print_, db_name, weapon, backfill):
     comp_matches = process_comp_matches(matches, user_id)
     dm_matches = process_dm_matches(auth, matches, user_id)
     if print_:
-        print_dm_games(dm_matches)
         print_comp_games(comp_matches)
+        print_dm_games(dm_matches)
     if plot:
-        plot_dm_games(username, dm_matches, weapon, 'kd')
+        # plot_dm_games(username, dm_matches, weapon, 'kd')
         plot_dm_games(username, dm_matches, weapon, 'performance')
         plot_comp_games(username, comp_matches)
 

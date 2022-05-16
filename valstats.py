@@ -122,7 +122,7 @@ def get_game_history(auth, zone='eu', exclude=[]):
     return matches
 
 
-def backfill_tiers(auth, matches, size=100):
+def backfill_tiers(auth, matches, size=100, exclude=[]):
     print(f"Backfilling tiers for last {size} games")
     print(f"There are in total {len(matches.values())} games")
     if size > len(matches.values()):
@@ -132,7 +132,8 @@ def backfill_tiers(auth, matches, size=100):
     args = []
     for m in splice:
         for p in m.get('players'):
-            args.append((auth, p))
+            if p['subject'] not in exclude:
+                args.append((auth, p))
     start = time.time()
     t = MultiThread(insert_competitive_tier, args, queue_results=True, maxThreads=100)
     t.start()
@@ -462,7 +463,7 @@ def valstats(username, password, zone, plot, print_, db_name, weapon, backfill):
     user_id = get_user_id(auth)
     matches = file_to_object(db_name) or {}
     if backfill:
-        backfill_tiers(auth, matches, size=backfill)
+        backfill_tiers(auth, matches, size=backfill, exclude=[user_id])
     new_matches = get_game_history(auth, zone, exclude=list(matches.keys()))
     matches.update(new_matches)
     object_to_file(matches, db_name)

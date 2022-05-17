@@ -13,7 +13,7 @@ import numpy as np
 from dateutil import parser, tz
 from frozendict import frozendict
 
-from auth import Auth, MultiThread
+from auth import Auth, MultiThread, requests_retry_session
 
 RUNNING_AVERAGE = 50
 AVERAGE_TIER = 11  # Silver 3
@@ -75,6 +75,46 @@ def get_user_id(auth):
     response = auth.session.post('https://auth.riotgames.com/userinfo', headers=auth.headers, json={}).json()
     user_id = response['sub']
     return user_id
+
+
+@lru_cache
+def get_maps():
+    url = "https://valorant-api.com/v1/maps"
+    response = requests_retry_session().get(url).json()
+    return response.get('data', None)
+
+
+@lru_cache
+def get_map(map_url):
+    maps = get_maps()
+    map = next((m for m in maps if m['mapUrl'] == map_url), None)
+    return map
+
+
+@lru_cache
+def get_agent(uuid=None):
+    url = f"https://valorant-api.com/v1/agents/{uuid.lower()}"
+    response = requests_retry_session().get(url).json()
+    return response.get('data', None)
+
+
+@lru_cache
+def get_all_weapons():
+    url = "https://valorant-api.com/v1/weapons"
+    response = requests_retry_session().get(url).json()
+    return response.get('data', [])
+
+
+@lru_cache
+def get_weapon(name=None, uuid=None):
+    weapons = get_all_weapons()
+    key = 'displayName' if name else 'uuid'
+    value = name.title() if name else uuid.lower()
+
+    weapon = next((w for w in weapons if w[key] == value), None)
+    if not weapon:
+        return get_weapon(name='vandal')
+    return weapon
 
 
 def get_game_history(auth, zone='eu', exclude=[]):
@@ -153,12 +193,12 @@ def process_comp_matches(matches, user_id):
         scores = match['teams'][0]['roundsWon'], match['teams'][0]['roundsPlayed'] - match['teams'][0]['roundsWon']
         starttime = datetime.utcfromtimestamp(match.get('matchInfo').get('gameStartMillis') / 1000).replace(
             tzinfo=tz.tzutc()).isoformat()
-        map = mapmap[match.get('matchInfo').get('mapId').split('/')[-1:][0]]
+        map = get_map(match.get('matchInfo').get('mapId')).get('displayName')
         game = {'date': starttime,
                 'map': map}
         for player in match.get('players', []):
             if player.get('subject') == user_id:
-                game['agent'] = agentmap.get(player.get('characterId'), player.get('characterId'))
+                game['agent'] = get_agent(player.get('characterId')).get('displayName')
                 game['rank'] = rankmap[player.get('competitiveTier')]
                 game['rank_raw'] = player.get('competitiveTier')
                 if not winning_team:
@@ -189,7 +229,8 @@ def _get_main_weapon(match, user_id):
     if not weapons:
         return "Unknown"
     main_weapon = max(weapons, key=weapons.get)
-    return weaponmap.get(main_weapon, main_weapon)
+    return get_weapon(uuid=main_weapon).get('displayName')
+    # return weaponmap.get(main_weapon, main_weapon)
 
 
 def get_dm_weight(main_weapon, avg_tier):
@@ -199,7 +240,10 @@ def get_dm_weight(main_weapon, avg_tier):
 
     tier_weight = (tier_damp + 1/AVERAGE_TIER) / (tier_damp + 1/avg_tier)
     # print(f"tier_weight for {avg_tier:.2f}: {tier_weight:.2f}")
-    weapon_weight = (weapon_damp + weaponprice[baseline_weapon]) / (weapon_damp + weaponprice[main_weapon])
+    baseline_weapon_cost = get_weapon(name=baseline_weapon).get('shopData').get('cost')
+    print(main_weapon)
+    main_weapon_cost = get_weapon(name=main_weapon).get('shopData').get('cost')
+    weapon_weight = (weapon_damp + baseline_weapon_cost) / (weapon_damp + main_weapon_cost)
     # print(f"weapon_weight for {main_weapon}: {weapon_weight:.2f}")
     # print(f"total weight: {tier_weight * weapon_weight:.2f}")
     # print("")
@@ -215,14 +259,14 @@ def process_dm_matches(auth, matches, user_id):
         main_weapon = _get_main_weapon(match, user_id)
         starttime = datetime.utcfromtimestamp(match.get('matchInfo').get('gameStartMillis') / 1000).replace(
             tzinfo=tz.tzutc()).isoformat()
-        map = mapmap[match.get('matchInfo').get('mapId').split('/')[-1:][0]]
+        map = get_map(match.get('matchInfo').get('mapId')).get('displayName')
         game = {'date': starttime,
                 'map': map,
                 'weapon': main_weapon}
         tiers = [p.get('competitiveTier') or AVERAGE_TIER for p in match.get('players') if p.get('subject') != user_id]
         avg_tier = round(sum(tiers) / len(tiers) if len(tiers) else AVERAGE_TIER, 2)
         me = next(p for p in match.get('players') if p.get('subject') == user_id)
-        game['agent'] = agentmap.get(me.get('characterId'), me.get('characterId'))
+        game['agent'] = get_agent(me.get('characterId')).get('displayName')
         game['kills'] = me['stats']['kills']
         game['deaths'] = me['stats']['deaths']
         game['score'] = me['stats']['score']
@@ -385,66 +429,6 @@ rankmap = {
     24: 'Radiant'
 }
 
-mapmap = {
-    'Duality': 'Bind',
-    'Port': 'Icebox',
-    'Triad': 'Haven',
-    'Bonsai': 'Split',
-    'Ascent': 'Ascent',
-    'Foxtrot': 'Breeze',
-    'Canyon': 'Fracture',
-}
-
-agentmap = {
-    '1e58de9c-4950-5125-93e9-a0aee9f98746': 'Killjoy',
-    '9f0d8ba9-4140-b941-57d3-a7ad57c6b417': 'Brimstone',
-    '7f94d92c-4234-0a36-9646-3a87eb8b5c89': 'Yoru',
-    '5f8d3a7f-467b-97f3-062c-13acf203c006': 'Breach',
-    'eb93336a-449b-9c1b-0a54-a891f7921d69': 'Phoenix',
-    '707eab51-4836-f488-046a-cda6bf494859': 'Viper',
-    'f94c3b30-42be-e959-889c-5aa313dba261': 'Raze',
-    '6f2a04ca-43e0-be17-7f36-b3908627744d': 'Skye',
-    '117ed9e3-49f3-6512-3ccf-0cada7e3823b': 'Cypher',
-    'ded3520f-4264-bfed-162d-b080e2abccf9': 'Sova',
-    '320b2a48-4d9b-a075-30f1-1f93a9b638fa': 'Sova',
-    '41fb69c1-4189-7b37-f117-bcaf1e96f1bf': 'Astra',
-    '569fdd95-4d10-43ab-ca70-79becc718b46': 'Sage',
-    'a3bfb853-43b2-7238-a4f1-ad90e9e46bcc': 'Reyna',
-    '8e253930-4c05-31dd-1b6c-968525494517': 'Omen',
-    'add6443a-41bd-e414-f6ad-e58d267f4e95': 'Jett',
-    '601dbbe7-43ce-be57-2a40-4abd24953621': 'Kay/O',
-    '22697a3d-45bf-8dd7-4fec-84a9e28c69d7': 'Chamber',
-    'bb2a4828-46eb-8cd1-e765-15848195d751': 'Neon',
-    'dade69b4-4f5a-8528-247b-219e5a1facd6': 'Fade',
-}
-
-weaponmap = {
-    '9C82E19D-4575-0200-1A81-3EACF00CF872': 'Vandal',
-    'EE8E8D15-496B-07AC-E5F6-8FAE5D4C7B1A': 'Phantom',
-    'E336C6B8-418D-9340-D77F-7A9E4CFE0702': 'Sheriff',
-    'AE3DE142-4D85-2547-DD26-4E90BED35CF7': 'Bulldog',
-    '4ADE7FAA-4CF1-8376-95EF-39884480959B': 'Guardian',
-    'C4883E50-4494-202C-3EC3-6B8A9284F00B': 'Marshal',
-    'A03B24D3-4319-996D-0F8C-94BBFBA1DFC7': 'Operator',
-    '29A0CFAB-485B-F5D5-779A-B59F85E204A8': 'Classic',
-    '1BAA85B4-4C70-1284-64BB-6481DFC3BB4E': 'Ghost',
-
-}
-
-weaponprice = {
-    'Vandal': 2900,
-    'Phantom': 2900,
-    'Sheriff': 800,
-    'Bulldog': 2050,
-    'Guardian': 2250,
-    'Marshal': 950,
-    'Operator': 4700,
-    'Classic': 400,
-    'Ghost': 500,
-    'Unknown': 2900,
-}
-
-
 @click.command()
 @click.argument('username')  # help="Your riot login username. Not in-game user")
 @click.argument('password')
@@ -453,7 +437,7 @@ weaponprice = {
 @click.option('--print/--no-print', 'print_', default=False, help='Print the games to terminal')
 @click.option('--db-name', default=None, help="Database name and path. Default is ./{username}.db")
 @click.option('--weapon', default=None, help="Show dm stats for this weapon only",
-              type=click.Choice([w.lower() for w in weaponmap.values()]))
+              type=click.Choice([d.get('displayName').lower() for d in get_all_weapons()]))
 @click.option('--backfill', default=None, help="Backfill tiers for old deathmatch games", type=int)
 def valstats(username, password, zone, plot, print_, db_name, weapon, backfill):
     if db_name is None:

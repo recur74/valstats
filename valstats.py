@@ -428,6 +428,8 @@ weaponmap = {
     'A03B24D3-4319-996D-0F8C-94BBFBA1DFC7': 'Operator',
     '29A0CFAB-485B-F5D5-779A-B59F85E204A8': 'Classic',
     '1BAA85B4-4C70-1284-64BB-6481DFC3BB4E': 'Ghost',
+    '462080D1-4035-2937-7C09-27AA2A5C27A7': 'Spectre',
+    'F7E1B454-4AD4-1063-EC0A-159E56B58941': 'Stinger',
 
 }
 
@@ -442,6 +444,8 @@ weaponprice = {
     'Classic': 400,
     'Ghost': 500,
     'Unknown': 2900,
+    'Spectre': 1600,
+    'Stinger': 950,
 }
 
 

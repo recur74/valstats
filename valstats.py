@@ -6,7 +6,7 @@ import sys
 import time
 from datetime import datetime
 from functools import wraps, lru_cache
-
+import gzip
 import click
 import matplotlib.pyplot as plt
 import numpy as np
@@ -22,16 +22,22 @@ AVERAGE_TIER = 11  # Silver 3
 def file_to_object(save_file):
     print("Reading database")
     try:
-        object = pickle.load(open(save_file, "rb"))
+        fp = gzip.open(save_file, 'rb')
+        object = pickle.load(fp)
     except IOError as ioe:
         print(ioe.strerror)
         return None
+    finally:
+        if fp:
+            fp.close()
     return object
 
 
 def object_to_file(object, filename):
     print("Saving to database")
-    pickle.dump(object, open(filename, "wb"), protocol=2)
+    fp = gzip.open(filename, 'wb')
+    pickle.dump(object, fp, protocol=2)
+    fp.close()
 
 
 def draw_progress_bar(percent, barLen=20):
@@ -241,7 +247,7 @@ def get_dm_weight(main_weapon, avg_tier):
     tier_weight = (tier_damp + 1/AVERAGE_TIER) / (tier_damp + 1/avg_tier)
     # print(f"tier_weight for {avg_tier:.2f}: {tier_weight:.2f}")
     baseline_weapon_cost = get_weapon(name=baseline_weapon).get('shopData').get('cost')
-    print(main_weapon)
+    # print(main_weapon)
     main_weapon_cost = get_weapon(name=main_weapon).get('shopData').get('cost')
     weapon_weight = (weapon_damp + baseline_weapon_cost) / (weapon_damp + main_weapon_cost)
     # print(f"weapon_weight for {main_weapon}: {weapon_weight:.2f}")

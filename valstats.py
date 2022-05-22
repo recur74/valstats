@@ -1,12 +1,14 @@
 #! /usr/bin/env python
 
 import asyncio
+import gzip
+import os
 import pickle
 import sys
 import time
 from datetime import datetime
 from functools import wraps, lru_cache
-import gzip
+
 import click
 import matplotlib.pyplot as plt
 import numpy as np
@@ -35,9 +37,27 @@ def file_to_object(save_file):
 
 def object_to_file(object, filename):
     print("Saving to database")
-    fp = gzip.open(filename, 'wb')
-    pickle.dump(object, fp, protocol=2)
-    fp.close()
+    try:
+        if os.path.exists(f"{filename}.bak"):
+            os.remove(f"{filename}.bak")
+        if os.path.exists(filename):
+            os.rename(filename, f"{filename}.bak")
+        fp = gzip.open(filename, 'wb')
+        pickle.dump(object, fp, protocol=2)
+        if os.path.getsize(filename) == 0:
+            print("Failed to save to database")
+            os.remove(filename)
+            if os.path.exists(f"{filename}.bak"):
+                os.rename(f"{filename}.bak", filename)
+    except BaseException as e:
+        if fp:
+            fp.close()
+        print("Failed to save to database")
+        os.remove(filename)
+        if os.path.exists(f"{filename}.bak"):
+            os.rename(f"{filename}.bak", filename)
+    finally:
+        fp.close()
 
 
 def draw_progress_bar(percent, barLen=20):
@@ -240,11 +260,11 @@ def _get_main_weapon(match, user_id):
 
 
 def get_dm_weight(main_weapon, avg_tier):
-    tier_damp = 1/22
+    tier_damp = 1 / 22
     weapon_damp = 6000
     baseline_weapon = 'Vandal'
 
-    tier_weight = (tier_damp + 1/AVERAGE_TIER) / (tier_damp + 1/avg_tier)
+    tier_weight = (tier_damp + 1 / AVERAGE_TIER) / (tier_damp + 1 / avg_tier)
     # print(f"tier_weight for {avg_tier:.2f}: {tier_weight:.2f}")
     baseline_weapon_cost = get_weapon(name=baseline_weapon).get('shopData').get('cost')
     # print(main_weapon)
@@ -282,7 +302,7 @@ def process_dm_matches(auth, matches, user_id):
         # print(main_weapon)
         game['performance'] = round(
             ((game['kills'] * 1 + game['assists'] * 0.25) * get_dm_weight(main_weapon, avg_tier)) / (
-            game['deaths']), 2)
+                game['deaths']), 2)
         game['kd'] = round(game['kills'] / game['deaths'], 2)
         games.append(game)
     return games
@@ -435,6 +455,7 @@ rankmap = {
     24: 'Radiant'
 }
 
+
 @click.command()
 @click.argument('username')  # help="Your riot login username. Not in-game user")
 @click.argument('password')
@@ -455,6 +476,7 @@ def valstats(username, password, zone, plot, print_, db_name, weapon, backfill):
     if backfill:
         backfill_tiers(auth, matches, size=backfill, exclude=[user_id])
     new_matches = get_game_history(auth, zone, exclude=list(matches.keys()))
+    # if new_matches:
     matches.update(new_matches)
     object_to_file(matches, db_name)
     comp_matches = process_comp_matches(matches, user_id)

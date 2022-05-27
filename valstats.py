@@ -260,18 +260,18 @@ def _get_main_weapon(match, user_id):
 
 
 def get_dm_weight(main_weapon, avg_tier):
-    tier_damp = 1 / 22
+    tier_damp = 11 
     weapon_damp = 6000
     baseline_weapon = 'Vandal'
 
-    tier_weight = (tier_damp + 1 / AVERAGE_TIER) / (tier_damp + 1 / avg_tier)
-    # print(f"tier_weight for {avg_tier:.2f}: {tier_weight:.2f}")
+    tier_weight = (avg_tier + tier_damp) / (AVERAGE_TIER + tier_damp)
+    #print(f"tier_weight for {avg_tier:.2f}: {tier_weight:.2f}")
     baseline_weapon_cost = get_weapon(name=baseline_weapon).get('shopData').get('cost')
     # print(main_weapon)
     main_weapon_cost = get_weapon(name=main_weapon).get('shopData').get('cost')
     weapon_weight = (weapon_damp + baseline_weapon_cost) / (weapon_damp + main_weapon_cost)
-    # print(f"weapon_weight for {main_weapon}: {weapon_weight:.2f}")
-    # print(f"total weight: {tier_weight * weapon_weight:.2f}")
+    #print(f"weapon_weight for {main_weapon}: {weapon_weight:.2f}")
+    #print(f"total weight: {tier_weight * weapon_weight:.2f}")
     # print("")
     return tier_weight * weapon_weight
 
@@ -408,7 +408,7 @@ def plot_dm_games_for_weapon(username, games, weapon, metric='kd'):
 
     dates = [g['date'] for g in games]
     en_dates = [i for i, d in enumerate(dates)]
-    # plt.scatter(dates, [g['kd'] for g in games], color='gray', label=f"kd")
+    plt.scatter(dates, [g['kd'] for g in games], color='gray', label=f"kd")
     plt.scatter(dates, metric_values, color='blue', label=f"{metric}")
     plt.plot(dates, ra, color='orange', label="Running Average")
     if len(en_dates) > 1:

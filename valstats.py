@@ -6,7 +6,7 @@ import os
 import pickle
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, date
 from functools import wraps, lru_cache
 
 import click
@@ -259,12 +259,14 @@ def _get_main_weapon(match, user_id):
     # return weaponmap.get(main_weapon, main_weapon)
 
 
-def get_dm_weight(main_weapon, avg_tier):
-    tier_damp = 11 
+def get_dm_weight(main_weapon, avg_tier, date_of_match):
+    tier_damp = 11
     weapon_damp = 6000
     baseline_weapon = 'Vandal'
+    days_ago = (date.today() - parser.parse(date_of_match).date()).days
+    tier_decay = (days_ago - 3650) / -3650
 
-    tier_weight = (avg_tier + tier_damp) / (AVERAGE_TIER + tier_damp)
+    tier_weight = (avg_tier * tier_decay + tier_damp) / (AVERAGE_TIER + tier_damp)
     #print(f"tier_weight for {avg_tier:.2f}: {tier_weight:.2f}")
     baseline_weapon_cost = get_weapon(name=baseline_weapon).get('shopData').get('cost')
     # print(main_weapon)
@@ -301,7 +303,7 @@ def process_dm_matches(auth, matches, user_id):
         # print(f"Average Tier: {rankmap.get(round(avg_tier))}")
         # print(main_weapon)
         game['performance'] = round(
-            ((game['kills'] * 1 + game['assists'] * 0.25) * get_dm_weight(main_weapon, avg_tier)) / (
+            ((game['kills'] * 1 + game['assists'] * 0.25) * get_dm_weight(main_weapon, avg_tier, starttime)) / (
                 game['deaths']), 2)
         game['kd'] = round(game['kills'] / game['deaths'], 2)
         games.append(game)

@@ -5,6 +5,7 @@ import pickle
 
 def file_to_object(save_file):
     print("Reading database")
+    fp = None
     try:
         fp = gzip.open(save_file, 'rb')
         object = pickle.load(fp)

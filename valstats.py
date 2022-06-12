@@ -7,6 +7,7 @@ import click
 import matplotlib.pyplot as plt
 import numpy as np
 from dateutil import parser, tz
+import urllib
 
 from auth import Auth, requests_retry_session
 from database import object_to_file, file_to_object

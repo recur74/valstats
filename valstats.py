@@ -1,11 +1,5 @@
 #! /usr/bin/env python
 
-import asyncio
-import gzip
-import os
-import pickle
-import sys
-import time
 from datetime import datetime, date
 from functools import wraps, lru_cache
 
@@ -13,94 +7,30 @@ import click
 import matplotlib.pyplot as plt
 import numpy as np
 from dateutil import parser, tz
-from frozendict import frozendict
 
-from auth import Auth, MultiThread, requests_retry_session
+from auth import Auth, requests_retry_session
+from database import object_to_file, file_to_object
 
 RUNNING_AVERAGE = 50
 AVERAGE_TIER = 11  # Silver 3
 
-
-def file_to_object(save_file):
-    print("Reading database")
-    try:
-        fp = gzip.open(save_file, 'rb')
-        object = pickle.load(fp)
-    except IOError as ioe:
-        print(ioe.strerror)
-        return None
-    finally:
-        if fp:
-            fp.close()
-    return object
+HENRIK_API = "https://api.henrikdev.xyz/valorant"
+auth = None
 
 
-def object_to_file(object, filename):
-    print("Saving to database")
-    try:
-        if os.path.exists(f"{filename}.bak"):
-            os.remove(f"{filename}.bak")
-        if os.path.exists(filename):
-            os.rename(filename, f"{filename}.bak")
-        fp = gzip.open(filename, 'wb')
-        pickle.dump(object, fp, protocol=2)
-        if os.path.getsize(filename) == 0:
-            print("Failed to save to database")
-            os.remove(filename)
-            if os.path.exists(f"{filename}.bak"):
-                os.rename(f"{filename}.bak", filename)
-    except BaseException as e:
-        if fp:
-            fp.close()
-        print("Failed to save to database")
-        os.remove(filename)
-        if os.path.exists(f"{filename}.bak"):
-            os.rename(f"{filename}.bak", filename)
-    finally:
-        fp.close()
-
-
-def draw_progress_bar(percent, barLen=20):
-    sys.stdout.write("\r")
-    progress = ""
-    for i in range(barLen):
-        if i < int(barLen * percent):
-            progress += "="
-        else:
-            progress += " "
-    sys.stdout.write("[ %s ] %.2f%%" % (progress, percent * 100))
-    sys.stdout.flush()
-
-
-def login(username, password):
-    print("Logging in")
-    a = Auth(username, password)
-    asyncio.get_event_loop().run_until_complete(a.authenticate())
-    return a
-
-
-def freezeargs(func):
-    """Transform mutable dictionary
-    Into immutable
-    Useful to be compatible with cache
-    """
-
-    @wraps(func)
-    def wrapped(*args, **kwargs):
-        args = tuple([frozendict(arg) if isinstance(arg, dict) else arg for arg in args])
-        kwargs = {k: frozendict(v) if isinstance(v, dict) else v for k, v in kwargs.items()}
-        return func(*args, **kwargs)
-
-    return wrapped
-
-
-@freezeargs
 @lru_cache
-def get_user_id(auth):
+def get_user_id():
     print("Getting user id")
-    response = auth.session.post('https://auth.riotgames.com/userinfo', headers=auth.headers, json={}).json()
-    user_id = response['sub']
+    url = f"{HENRIK_API}/v1/account/{auth.name}/{auth.tag}"
+    response = auth.session.get(url).json()
+    user_id = response['data']['puuid']
     return user_id
+
+
+def get_user_mmr(user_id):
+    url = f"{HENRIK_API}/v2/by-puuid/mmr/{auth.region}/{user_id}"
+    response = auth.session.get(url).json()
+    return response['data']['current_data']['currenttier']
 
 
 @lru_cache
@@ -113,15 +43,22 @@ def get_maps():
 @lru_cache
 def get_map(map_url):
     maps = get_maps()
-    map = next((m for m in maps if m['mapUrl'] == map_url), None)
+    map = next((m for m in maps if m['mapUrl'] == map_url or m['displayName'] == map_url), None)
     return map
 
 
 @lru_cache
-def get_agent(uuid=None):
-    url = f"https://valorant-api.com/v1/agents/{uuid.lower()}"
+def get_agents():
+    url = f"https://valorant-api.com/v1/agents"
     response = requests_retry_session().get(url).json()
     return response.get('data', None)
+
+
+@lru_cache
+def get_agent(uuid_or_name=None):
+    agents = get_agents()
+    agent = next((m for m in agents if m['uuid'] == uuid_or_name or m['displayName'] == uuid_or_name), None)
+    return agent
 
 
 @lru_cache
@@ -143,69 +80,54 @@ def get_weapon(name=None, uuid=None):
     return weapon
 
 
-def get_game_history(auth, zone='eu', exclude=[]):
+def map_to_internal(matches):
+    internal = {}
+    for m in matches:
+        internal[m['metadata']['matchid']] = m
+        m['matchInfo'] = m['metadata']
+        m['matchInfo']['matchId'] = m['metadata']['matchid']
+        m['matchInfo']['queueID'] = m['metadata']['mode'].lower()
+        m['matchInfo']['gameStartMillis'] = m['metadata']['game_start'] * 1000
+        m['matchInfo']['mapId'] = m['metadata']['map']
+        if m['matchInfo']['queueID'] == 'competitive':
+            m['teams'] = [
+                {'teamId': k, 'won': v['has_won'], 'roundsPlayed': v['rounds_won'] + v['rounds_lost'],
+                 'roundsWon': v['rounds_won']} for k, v in m['teams'].items()
+            ]
+        m['players'] = [
+            {k: v for k, v in p.items()} for p in m['players']['all_players']
+        ]
+        for p in m['players']:
+            p['subject'] = p['puuid']
+            p['competitiveTier'] = p['currenttier']
+            p['characterId'] = p['character']
+            p['teamId'] = p['team'].lower()
+        for k in m['kills']:
+            k['killer'] = k['killer_puuid']
+            k['finishingDamage'] = {}
+            k['finishingDamage']['damageItem'] = k['damage_weapon_id']
+    return internal
+
+
+def get_game_history(exclude=[]):
     print("Fetching matches")
-
-    user_id = get_user_id(auth)
-
-    match_ids = []
-
-    startindex = 0
-    size = 20
-    endindex = startindex + size
-    url = 'https://pd.{zone}.a.pvp.net/match-history/v1/history/{user_id}?startIndex={startindex}&endIndex={endindex}'
-    # url = 'https://pd.{zone}.a.pvp.net/mmr/v1/players/{user_id}/competitiveupdates?startIndex={startindex}&endIndex={endindex}'
-    response = auth.session.get(url.format(zone=zone, user_id=user_id, startindex=startindex, endindex=endindex),
-                                headers=auth.headers).json()
-    # Matches
-    root = 'History'
-    # root = 'Matches'
-    while len(response.get(root, [])) == size:
-        match_ids.extend([m.get('MatchID') for m in response.get(root, [])])
-        startindex += size
-        endindex += size
-        response = auth.session.get(url.format(zone=zone, user_id=user_id, startindex=startindex, endindex=endindex),
-                                    headers=auth.headers).json()
-    match_ids.extend([m.get('MatchID') for m in response.get(root, [])])
-    match_ids = [m for m in match_ids if m not in exclude]
-
-    print("Found {count} new matches".format(count=len(match_ids)))
-
-    matches = {}
-    match_info = 'https://pd.{zone}.a.pvp.net/match-details/v1/matches/{match_id}'
-    for i, mid in enumerate(match_ids):
-        draw_progress_bar((i + 1) / len(match_ids))
-        response = auth.session.get(match_info.format(zone=zone, match_id=mid), headers=auth.headers, timeout=5).json()
-        # if response.get('matchInfo', {}).get('isRanked') and \
-        #        response.get('matchInfo', {}).get('queueID') == queue:
-        matches[mid] = response
-    print("")
-    for i, m in enumerate(matches.values()):
-        draw_progress_bar((i + 1) / len(matches))
-        for p in m.get('players'):
-            insert_competitive_tier(auth, p)
-    print("")
-    return matches
+    user_id = get_user_id()
+    url = f"{HENRIK_API}/v3/by-puuid/matches/{auth.region}/{user_id}"
+    result = []
+    for typ in ('deathmatch', 'competitive'):
+        response = auth.session.get(url, params={'size': 10, 'filter': typ}).json()
+        for m in response['data']:
+            if m['metadata']['matchid'] not in exclude:
+                if typ == 'deathmatch':
+                    insert_competitive_tiers(m)
+                result.append(m)
+    return map_to_internal(result)
 
 
-def backfill_tiers(auth, matches, size=100, exclude=[]):
-    print(f"Backfilling tiers for last {size} games")
-    print(f"There are in total {len(matches.values())} games")
-    if size > len(matches.values()):
-        splice = matches.values()
-    else:
-        splice = list(reversed(matches.values()))[:size]
-    args = []
-    for m in splice:
-        for p in m.get('players'):
-            if p['subject'] not in exclude:
-                args.append((auth, p))
-    start = time.time()
-    t = MultiThread(insert_competitive_tier, args, queue_results=True, maxThreads=100)
-    t.start()
-    t.join()
-    end = time.time()
-    print("Time elapsed:", end - start)
+def insert_competitive_tiers(deathmatch):
+    for p in deathmatch['players']['all_players']:
+        tier = get_user_mmr(p['puuid'])
+        p['currenttier'] = tier
 
 
 def process_comp_matches(matches, user_id):
@@ -243,11 +165,12 @@ def process_comp_matches(matches, user_id):
     return games
 
 
-def _get_main_weapon(match, user_id):
-    player_stats = next(ps for ps in match['roundResults'][0]['playerStats'] if ps['subject'] == user_id)
+def get_main_weapon(match, user_id):
+    # player_stats = next(ps for ps in match['roundResults'][0]['playerStats'] if ps['subject'] == user_id)
     # print(player_stats)
+    user_kills = [k for k in match['kills'] if k['killer'] == user_id]
     weapons = {}
-    for k in player_stats.get('kills', []):
+    for k in user_kills:
         weapon = k.get('finishingDamage', {}).get('damageItem')
         if not weapons.get(weapon):
             weapons[weapon] = 0
@@ -284,7 +207,7 @@ def process_dm_matches(auth, matches, user_id):
     for match in matches.values():
         if match['matchInfo']['queueID'] != 'deathmatch':
             continue
-        main_weapon = _get_main_weapon(match, user_id)
+        main_weapon = get_main_weapon(match, user_id)
         starttime = datetime.utcfromtimestamp(match.get('matchInfo').get('gameStartMillis') / 1000).replace(
             tzinfo=tz.tzutc()).isoformat()
         map = get_map(match.get('matchInfo').get('mapId')).get('displayName')
@@ -308,16 +231,6 @@ def process_dm_matches(auth, matches, user_id):
         game['kd'] = round(game['kills'] / game['deaths'], 2)
         games.append(game)
     return games
-
-
-def insert_competitive_tier(auth, player, zone='eu'):
-    if player.get('competitiveTier', 0) != 0:
-        return
-    user_id = player.get('subject')
-    url = "https://pd.{zone}.a.pvp.net/mmr/v1/players/{user_id}/competitiveupdates?startIndex=0&endIndex=1&queue=competitive"
-    response = auth.session.get(url.format(zone=zone, user_id=user_id), headers=auth.headers, timeout=5).json()
-    previous_match_rank = next(iter(m.get("TierAfterUpdate", 0) for m in response.get('Matches', [])), 0)
-    player['competitiveTier'] = previous_match_rank if previous_match_rank != 0 else AVERAGE_TIER
 
 
 def print_dm_games(games: list):
@@ -459,25 +372,23 @@ rankmap = {
 
 
 @click.command()
-@click.argument('username')  # help="Your riot login username. Not in-game user")
-@click.argument('password')
+@click.argument('username')  # In-game user
 @click.option('--zone', default='eu', help="Valorant zone (eu, na etc)")
 @click.option('--plot/--no-plot', default=True, help='Plot the result')
 @click.option('--print/--no-print', 'print_', default=False, help='Print the games to terminal')
 @click.option('--db-name', default=None, help="Database name and path. Default is ./{username}.db")
 @click.option('--weapon', default=None, help="Show dm stats for this weapon only",
               type=click.Choice([d.get('displayName').lower() for d in get_all_weapons()]))
-@click.option('--backfill', default=None, help="Backfill tiers for old deathmatch games", type=int)
-def valstats(username, password, zone, plot, print_, db_name, weapon, backfill):
+def valstats(username, zone, plot, print_, db_name, weapon):
     if db_name is None:
         db_name = username + '.db'
     weapon = weapon.title() if weapon else weapon
-    auth = login(username, password)
-    user_id = get_user_id(auth)
+    name, tag = username.split('#')
+    global auth
+    auth = Auth(name, tag, zone)
+    user_id = get_user_id()
     matches = file_to_object(db_name) or {}
-    if backfill:
-        backfill_tiers(auth, matches, size=backfill, exclude=[user_id])
-    new_matches = get_game_history(auth, zone, exclude=list(matches.keys()))
+    new_matches = get_game_history(exclude=list(matches.keys()))
     if new_matches:
         matches.update(new_matches)
         object_to_file(matches, db_name)

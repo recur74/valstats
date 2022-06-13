@@ -24,6 +24,9 @@ def get_user_id():
     print("Getting user id")
     url = f"{HENRIK_API}/v1/account/{auth.name}/{auth.tag}"
     response = auth.session.get(url).json()
+    if response.get('status') == 404:
+        print(f"Could not find user '{auth.name}#{auth.tag}'")
+        return None
     user_id = response['data']['puuid']
     return user_id
 
@@ -388,6 +391,8 @@ def valstats(username, zone, plot, print_, db_name, weapon):
     global auth
     auth = Auth(name, tag, zone)
     user_id = get_user_id()
+    if not user_id:
+        return
     matches = file_to_object(db_name) or {}
     new_matches = get_game_history(exclude=list(matches.keys()))
     if new_matches:

@@ -20,7 +20,7 @@ auth = None
 
 @lru_cache
 def get_user_id():
-    print("Getting user id")
+    print("Getting user id", flush=True)
     url = f"{HENRIK_API}/v1/account/{auth.name}/{auth.tag}"
     response = auth.session.get(url).json()
     if response.get('status') == 404:
@@ -130,17 +130,19 @@ def map_to_internal(matches):
 
 
 def get_game_history(exclude=[]):
-    print("Fetching matches")
+    print("Fetching matches", flush=True)
     user_id = get_user_id()
     url = f"{HENRIK_API}/v3/by-puuid/matches/{auth.region}/{user_id}"
     result = []
     for typ in ('deathmatch', 'competitive'):
         response = auth.session.get(url, params={'size': 10, 'filter': typ}).json()
+        #print(response)
         for m in response['data']:
             if m['metadata']['matchid'] not in exclude:
                 if typ == 'deathmatch':
                     insert_competitive_tiers(m)
                 result.append(m)
+    print(f"Found {len(result)} new games", flush=True)
     return map_to_internal(result)
 
 
@@ -151,7 +153,7 @@ def insert_competitive_tiers(deathmatch):
 
 
 def process_comp_matches(matches, user_id):
-    print("Processing competitive matches")
+    print("Processing competitive matches", flush=True)
     games = []
     for match in matches.values():
         if match['matchInfo']['queueID'] != 'competitive':
@@ -222,7 +224,7 @@ def get_dm_weight(main_weapon, avg_tier, date_of_match):
 
 
 def process_dm_matches(auth, matches, user_id):
-    print("Processing deathmatch games")
+    print("Processing deathmatch games", flush=True)
     games = []
     for match in matches.values():
         if match['matchInfo']['queueID'] != 'deathmatch':
@@ -268,7 +270,7 @@ def print_dm_games(games: list):
         if len(running_average) > RUNNING_AVERAGE:
             running_average = running_average[-RUNNING_AVERAGE:]
             print("Running average: {}".format(round(sum(running_average) / len(running_average), 2)))
-        print("-----")
+        print("-----", flush=True)
 
 
 def print_comp_games(games: list):
@@ -281,7 +283,7 @@ def print_comp_games(games: list):
         print("Result: " + game['result'])
         print("Rank: " + game['rank'])
         print("MMR: " + game['mmr'] + "+" + str(game['progress']))
-        print("-----")
+        print("-----", flush=True)
 
 
 def plot_comp_games(username: str, games: list):

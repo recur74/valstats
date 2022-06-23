@@ -155,6 +155,7 @@ def insert_competitive_tiers(deathmatch):
 def process_comp_matches(matches, user_id):
     print("Processing competitive matches", flush=True)
     games = []
+    last_rank = AVERAGE_TIER
     for match in matches.values():
         if match['matchInfo']['queueID'] != 'competitive':
             continue
@@ -179,7 +180,8 @@ def process_comp_matches(matches, user_id):
                     game['result'] = 'Loss {l}-{w}'.format(w=max(scores), l=min(scores))
             if player.get('competitiveTier', 0) != 0 and player.get('subject') != user_id:
                 ranks.append(player.get('competitiveTier'))
-        avg = sum(ranks) / len(ranks)
+        avg = sum(ranks) / len(ranks) if len(ranks) != 0 else last_rank
+        last_rank = avg
         game['mmr'] = get_tier_by_number(int(avg)).get('tierName')
         game['mmr_raw'] = avg
         game['progress'] = int((avg - int(avg)) * 100)

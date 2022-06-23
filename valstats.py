@@ -1,13 +1,12 @@
 #! /usr/bin/env python
 
 from datetime import datetime, date
-from functools import wraps, lru_cache
+from functools import lru_cache
 
 import click
 import matplotlib.pyplot as plt
 import numpy as np
 from dateutil import parser, tz
-import urllib
 
 from auth import Auth, requests_retry_session
 from database import object_to_file, file_to_object
@@ -35,6 +34,23 @@ def get_user_mmr(user_id):
     url = f"{HENRIK_API}/v2/by-puuid/mmr/{auth.region}/{user_id}"
     response = auth.session.get(url).json()
     return response['data']['current_data']['currenttier']
+
+
+@lru_cache
+def get_tier_by_number(number):
+    tiers = get_competitive_tiers()
+    return next(t for t in tiers if t.get('tier') == number)
+
+
+@lru_cache
+def get_competitive_tiers():
+    url = "https://valorant-api.com/v1/competitivetiers"
+    response = requests_retry_session().get(url).json()
+    current_episode = response.get('data')[-1]
+    tiers = current_episode.get('tiers')
+    for t in tiers:
+        t['tierName'] = t['tierName'].title()
+    return current_episode.get('tiers')
 
 
 @lru_cache
@@ -151,7 +167,7 @@ def process_comp_matches(matches, user_id):
         for player in match.get('players', []):
             if player.get('subject') == user_id:
                 game['agent'] = get_agent(player.get('characterId')).get('displayName')
-                game['rank'] = rankmap[player.get('competitiveTier')]
+                game['rank'] = get_tier_by_number(player.get('competitiveTier')).get('tierName')
                 game['rank_raw'] = player.get('competitiveTier')
                 if not winning_team:
                     game['result'] = 'Draw {w}-{l}'.format(w=max(scores), l=min(scores))
@@ -162,7 +178,7 @@ def process_comp_matches(matches, user_id):
             if player.get('competitiveTier', 0) != 0 and player.get('subject') != user_id:
                 ranks.append(player.get('competitiveTier'))
         avg = sum(ranks) / len(ranks)
-        game['mmr'] = rankmap[int(avg)]
+        game['mmr'] = get_tier_by_number(int(avg)).get('tierName')
         game['mmr_raw'] = avg
         game['progress'] = int((avg - int(avg)) * 100)
         games.append(game)
@@ -194,13 +210,13 @@ def get_dm_weight(main_weapon, avg_tier, date_of_match):
     tier_decay = (days_ago - 3650) / -3650
 
     tier_weight = (avg_tier * tier_decay + tier_damp) / (AVERAGE_TIER + tier_damp)
-    #print(f"tier_weight for {avg_tier:.2f}: {tier_weight:.2f}")
+    # print(f"tier_weight for {avg_tier:.2f}: {tier_weight:.2f}")
     baseline_weapon_cost = get_weapon(name=baseline_weapon).get('shopData').get('cost')
     # print(main_weapon)
     main_weapon_cost = get_weapon(name=main_weapon).get('shopData').get('cost')
     weapon_weight = (weapon_damp + baseline_weapon_cost) / (weapon_damp + main_weapon_cost)
-    #print(f"weapon_weight for {main_weapon}: {weapon_weight:.2f}")
-    #print(f"total weight: {tier_weight * weapon_weight:.2f}")
+    # print(f"weapon_weight for {main_weapon}: {weapon_weight:.2f}")
+    # print(f"total weight: {tier_weight * weapon_weight:.2f}")
     # print("")
     return tier_weight * weapon_weight
 
@@ -227,7 +243,7 @@ def process_dm_matches(auth, matches, user_id):
         game['score'] = me['stats']['score']
         game['assists'] = me['stats']['assists']
         game['avg_tier'] = avg_tier
-        # print(f"Average Tier: {rankmap.get(round(avg_tier))}")
+        # print(f"Average Tier: {get_tier_by_number(round(avg_tier)).get('tierName')}")
         # print(main_weapon)
         game['performance'] = round(
             ((game['kills'] * 1 + game['assists'] * 0.25) * get_dm_weight(main_weapon, avg_tier, starttime)) / (
@@ -248,7 +264,7 @@ def print_dm_games(games: list):
         print(game['agent'] + '@' + game['map'])
         print(game['weapon'])
         print("{}/{} - {}".format(game['kills'], game['deaths'], game['kd']))
-        print(f"{rankmap.get(round(game['avg_tier']))} - {game['performance']}")
+        print(f"{get_tier_by_number(round(game['avg_tier'])).get('tierName')} - {game['performance']}")
         if len(running_average) > RUNNING_AVERAGE:
             running_average = running_average[-RUNNING_AVERAGE:]
             print("Running average: {}".format(round(sum(running_average) / len(running_average), 2)))
@@ -282,7 +298,8 @@ def plot_comp_games(username: str, games: list):
     z = np.polyfit(en_dates, mmr, 1)
     p = np.poly1d(z)
     plt.plot(en_dates, p(en_dates), "r--", label="Rank Trend")
-    plt.yticks(list(rankmap.keys()), list(rankmap.values()))
+    plt.yticks(list(t.get('tier') for t in get_competitive_tiers()),
+               list(t.get('tierName') for t in get_competitive_tiers()))
     plt.xticks(dates, en_dates)
     plt.gca().xaxis.set_major_locator(plt.MaxNLocator(10))
     plt.grid(b=True, which='major', axis='y', color='#EEEEEE', linestyle='-')
@@ -346,33 +363,6 @@ def plot_dm_games_for_weapon(username, games, weapon, metric='kd'):
     plt.legend()
     plt.title(f'Deathmatch {metric} for {username} with {weapon}'.format(username=username, weapon=weapon))
     plt.show()
-
-
-rankmap = {
-    0: 'Unranked',
-    3: 'Iron 1',
-    4: 'Iron 2',
-    5: 'Iron 3',
-    6: 'Bronze 1',
-    7: 'Bronze 2',
-    8: 'Bronze 3',
-    9: 'Silver 1',
-    10: 'Silver 2',
-    11: 'Silver 3',
-    12: 'Gold 1',
-    13: 'Gold 2',
-    14: 'Gold 3',
-    15: 'Platinum 1',
-    16: 'Platinum 2',
-    17: 'Platinum 3',
-    18: 'Diamond 1',
-    19: 'Diamond 2',
-    20: 'Diamond 3',
-    21: 'Immortal 1',
-    22: 'Immortal 2',
-    23: 'Immortal 3',
-    24: 'Radiant'
-}
 
 
 @click.command()

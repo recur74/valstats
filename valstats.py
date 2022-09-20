@@ -3,6 +3,7 @@
 from datetime import datetime, date
 from functools import lru_cache
 
+import time
 import click
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,7 +12,7 @@ from dateutil import parser, tz
 from auth import Auth, requests_retry_session
 from database import object_to_file, file_to_object
 
-RUNNING_AVERAGE = 100
+RUNNING_AVERAGE = 50
 AVERAGE_TIER = 12  # Gold 1
 
 HENRIK_API = "https://api.henrikdev.xyz/valorant"
@@ -23,6 +24,7 @@ def get_user_id():
     print("Getting user id", flush=True)
     url = f"{HENRIK_API}/v1/account/{auth.name}/{auth.tag}"
     response = auth.session.get(url).json()
+    # print(response)
     if response.get('status') == 404:
         print(f"Could not find user '{auth.name}#{auth.tag}'")
         return None
@@ -33,6 +35,8 @@ def get_user_id():
 def get_user_mmr(user_id):
     url = f"{HENRIK_API}/v2/by-puuid/mmr/{auth.region}/{user_id}"
     response = auth.session.get(url).json()
+    if response['status'] != 200:
+        return AVERAGE_TIER
     return response['data']['current_data']['currenttier']
 
 
@@ -136,7 +140,7 @@ def get_game_history(exclude=[]):
     result = []
     for typ in ('deathmatch', 'competitive'):
         response = auth.session.get(url, params={'size': 10, 'filter': typ}).json()
-        #print(response)
+        # print(response)
         for m in response['data']:
             if m['metadata']['matchid'] not in exclude:
                 if typ == 'deathmatch':

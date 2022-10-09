@@ -12,7 +12,7 @@ from auth import Auth, requests_retry_session
 from database import file_to_object, get_session, Match
 
 RUNNING_AVERAGE = 50
-AVERAGE_TIER = 11  # Silver 3
+AVERAGE_TIER = 12  # Gold 1
 
 HENRIK_API = "https://api.henrikdev.xyz/valorant"
 auth = None
@@ -33,7 +33,7 @@ def get_user_id():
 def get_user_mmr(user_id):
     url = f"{HENRIK_API}/v2/by-puuid/mmr/{auth.region}/{user_id}"
     response = auth.session.get(url).json()
-    if not response.get('data'):
+    if response['status'] != 200:
         return AVERAGE_TIER
     return response['data']['current_data']['currenttier']
 
@@ -208,7 +208,7 @@ def get_main_weapon(match, user_id):
 
 
 def get_dm_weight(main_weapon, avg_tier, date_of_match):
-    tier_damp = 11
+    tier_damp = AVERAGE_TIER
     weapon_damp = 6000
     baseline_weapon = 'Vandal'
     days_ago = (date.today() - parser.parse(date_of_match).date()).days

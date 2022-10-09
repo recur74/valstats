@@ -1,5 +1,5 @@
 #! /usr/bin/env python
-
+import json
 from datetime import datetime, date
 from functools import lru_cache
 
@@ -9,7 +9,7 @@ import numpy as np
 from dateutil import parser, tz
 
 from auth import Auth, requests_retry_session
-from database import object_to_file, file_to_object
+from database import file_to_object, get_session, Match
 
 RUNNING_AVERAGE = 50
 AVERAGE_TIER = 11  # Silver 3
@@ -33,6 +33,8 @@ def get_user_id():
 def get_user_mmr(user_id):
     url = f"{HENRIK_API}/v2/by-puuid/mmr/{auth.region}/{user_id}"
     response = auth.session.get(url).json()
+    if not response.get('data'):
+        return AVERAGE_TIER
     return response['data']['current_data']['currenttier']
 
 
@@ -136,7 +138,6 @@ def get_game_history(exclude=[]):
     result = []
     for typ in ('deathmatch', 'competitive'):
         response = auth.session.get(url, params={'size': 10, 'filter': typ}).json()
-        #print(response)
         for m in response['data']:
             if m['metadata']['matchid'] not in exclude:
                 if typ == 'deathmatch':
@@ -387,11 +388,22 @@ def valstats(username, zone, plot, print_, db_name, weapon):
     user_id = get_user_id()
     if not user_id:
         return
-    matches = file_to_object(db_name) or {}
+    session = get_session(f"{username}.sqlitedb")
+    if session.query(Match.id).count() == 0:
+        matches = file_to_object(db_name)
+        for key, data in matches.items():
+            session.add(Match(id=key, data=json.dumps(data)))
+        session.commit()
+    else:
+        results = session.query(Match).all()
+        matches = {res.id: json.loads(res.data) for res in results}
+
     new_matches = get_game_history(exclude=list(matches.keys()))
     if new_matches:
+        for key, data in new_matches.items():
+            session.add(Match(id=key, data=json.dumps(data)))
+        session.commit()
         matches.update(new_matches)
-        object_to_file(matches, db_name)
     comp_matches = process_comp_matches(matches, user_id)
     dm_matches = process_dm_matches(auth, matches, user_id)
     if print_:

@@ -1,6 +1,11 @@
-import os
 import gzip
 import pickle
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy import Column
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.types import String, CLOB
 
 
 def file_to_object(save_file):
@@ -18,26 +23,22 @@ def file_to_object(save_file):
     return object
 
 
-def object_to_file(object, filename):
-    print("Saving to database")
-    try:
-        if os.path.exists(f"{filename}.bak"):
-            os.remove(f"{filename}.bak")
-        if os.path.exists(filename):
-            os.rename(filename, f"{filename}.bak")
-        fp = gzip.open(filename, 'wb')
-        pickle.dump(object, fp, protocol=2)
-        if os.path.getsize(filename) == 0:
-            print("Failed to save to database")
-            os.remove(filename)
-            if os.path.exists(f"{filename}.bak"):
-                os.rename(f"{filename}.bak", filename)
-    except BaseException as e:
-        if fp:
-            fp.close()
-        print("Failed to save to database")
-        os.remove(filename)
-        if os.path.exists(f"{filename}.bak"):
-            os.rename(f"{filename}.bak", filename)
-    finally:
-        fp.close()
+Base = declarative_base()
+
+
+class Match(Base):
+    __tablename__ = "match"
+
+    id = Column(String, primary_key=True)
+    data = Column(CLOB)
+
+
+def get_session(name):
+    engine = create_engine(
+        f"sqlite:///{name}",
+        echo=False
+    )
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    return session

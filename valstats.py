@@ -6,6 +6,7 @@ from functools import lru_cache
 import click
 import matplotlib.pyplot as plt
 import numpy as np
+from statistics import median
 from dateutil import parser, tz
 
 from auth import Auth, requests_retry_session
@@ -16,6 +17,9 @@ AVERAGE_TIER = 12  # Gold 1
 
 HENRIK_API = "https://api.henrikdev.xyz/valorant"
 auth = None
+
+plt.rcParams['ytick.right'] = plt.rcParams['ytick.labelright'] = True
+plt.rcParams['ytick.left'] = plt.rcParams['ytick.labelleft'] = False
 
 
 @lru_cache
@@ -272,7 +276,8 @@ def print_dm_games(games: list):
         print(f"{get_tier_by_number(round(game['avg_tier'])).get('tierName')} - {game['performance']}")
         if len(running_average) > RUNNING_AVERAGE:
             running_average = running_average[-RUNNING_AVERAGE:]
-            print("Running average: {}".format(round(sum(running_average) / len(running_average), 2)))
+            #print("Running average: {}".format(round(sum(running_average) / len(running_average), 2)))
+            print("Running median: {}".format(round(median(running_average), 2)))
         print("-----", flush=True)
 
 
@@ -343,7 +348,8 @@ def plot_dm_games_for_weapon(username, games, weapon, metric='kd'):
         running_avg.append(game[metric])
         if len(running_avg) > RUNNING_AVERAGE:
             running_avg = running_avg[-RUNNING_AVERAGE:]
-            ra.append(round(sum(running_avg) / len(running_avg), 2))
+            ra.append(round(median(running_avg), 2))
+            # ra.append(round(sum(running_avg) / len(running_avg), 2))
         else:
             ra.append(None)
 

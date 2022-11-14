@@ -390,7 +390,7 @@ def valstats(username, zone, plot, print_, db_name, weapon):
         return
     session = get_session(f"{username}.sqlitedb")
     if session.query(Match.id).count() == 0:
-        matches = file_to_object(db_name)
+        matches = file_to_object(db_name) or {}
         for key, data in matches.items():
             session.add(Match(id=key, data=json.dumps(data)))
         session.commit()

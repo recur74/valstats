@@ -10,7 +10,7 @@ from statistics import median
 from dateutil import parser, tz
 
 from auth import Auth, requests_retry_session
-from database import file_to_object, get_session, Match
+from database import file_to_object, get_session, Match, User
 
 RUNNING_AVERAGE = 50
 AVERAGE_TIER = 12  # Gold 1
@@ -23,14 +23,22 @@ plt.rcParams['ytick.left'] = plt.rcParams['ytick.labelleft'] = False
 
 
 @lru_cache
-def get_user_id():
+def get_user_id(session):
     print("Getting user id", flush=True)
+    user_id = session.query(User.id).\
+        filter(User.name == auth.name).\
+        filter(User.tag == auth.tag).\
+        one_or_none()
+    if user_id:
+        return user_id[0]
     url = f"{HENRIK_API}/v1/account/{auth.name}/{auth.tag}"
     response = auth.session.get(url).json()
     if response.get('status') == 404:
         print(f"Could not find user '{auth.name}#{auth.tag}'")
         return None
     user_id = response['data']['puuid']
+    session.add(User(id=user_id, name=auth.name, tag=auth.tag))
+    session.commit()
     return user_id
 
 
@@ -135,9 +143,9 @@ def map_to_internal(matches):
     return internal
 
 
-def get_game_history(exclude=[]):
+def get_game_history(session, exclude=[]):
     print("Fetching matches", flush=True)
-    user_id = get_user_id()
+    user_id = get_user_id(session)
     url = f"{HENRIK_API}/v3/by-puuid/matches/{auth.region}/{user_id}"
     result = []
     for typ in ('deathmatch', 'competitive'):
@@ -391,10 +399,10 @@ def valstats(username, zone, plot, print_, db_name, weapon):
     name, tag = username.split('#')
     global auth
     auth = Auth(name, tag, zone)
-    user_id = get_user_id()
+    session = get_session(f"{username}.sqlitedb")
+    user_id = get_user_id(session)
     if not user_id:
         return
-    session = get_session(f"{username}.sqlitedb")
     if session.query(Match.id).count() == 0:
         matches = file_to_object(db_name) or {}
         for key, data in matches.items():
@@ -404,7 +412,7 @@ def valstats(username, zone, plot, print_, db_name, weapon):
         results = session.query(Match).all()
         matches = {res.id: json.loads(res.data) for res in results}
 
-    new_matches = get_game_history(exclude=list(matches.keys()))
+    new_matches = get_game_history(session, exclude=list(matches.keys()))
     if new_matches:
         for key, data in new_matches.items():
             session.add(Match(id=key, data=json.dumps(data)))

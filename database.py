@@ -33,6 +33,13 @@ class Match(Base):
     data = Column(CLOB)
 
 
+class User(Base):
+    __tablename__ = "user"
+    id = Column(String, primary_key=True)
+    name = Column(String, nullable=False, index=True)
+    tag = Column(String, nullable=False, index=True)
+
+
 def get_session(name):
     engine = create_engine(
         f"sqlite:///{name}",

@@ -36,6 +36,9 @@ def get_user_id(session):
     if response.get('status') == 404:
         print(f"Could not find user '{auth.name}#{auth.tag}'")
         return None
+    if response.get('status') != 200:
+        print(response.get('errors')[0]['message'])
+        return None
     user_id = response['data']['puuid']
     session.add(User(id=user_id, name=auth.name, tag=auth.tag))
     session.commit()

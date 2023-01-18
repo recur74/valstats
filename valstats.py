@@ -2,7 +2,7 @@
 import json
 from datetime import datetime, date
 from functools import lru_cache
-
+import elo
 import click
 import matplotlib.pyplot as plt
 import numpy as np
@@ -21,6 +21,11 @@ auth = None
 plt.rcParams['ytick.right'] = plt.rcParams['ytick.labelright'] = True
 plt.rcParams['ytick.left'] = plt.rcParams['ytick.labelleft'] = False
 
+@lru_cache()
+def get_tier_elo(tier):
+    if not tier:
+        return 1000
+    return tier * 100 - (AVERAGE_TIER - 10) * 100
 
 @lru_cache
 def get_user_id(session):
@@ -141,6 +146,7 @@ def map_to_internal(matches):
             p['teamId'] = p['team'].lower()
         for k in m['kills']:
             k['killer'] = k['killer_puuid']
+            k['victim'] = k['victim_puuid']
             k['finishingDamage'] = {}
             k['finishingDamage']['damageItem'] = k['damage_weapon_id']
     return internal
@@ -239,6 +245,46 @@ def get_dm_weight(main_weapon, avg_tier, date_of_match):
     # print(f"total weight: {tier_weight * weapon_weight:.2f}")
     # print("")
     return tier_weight * weapon_weight
+
+
+def process_dms_for_elo(matches, user_id):
+    print("Processing deathmatch games for elo", flush=True)
+    elos = {'Unknown': [0]}
+    for match in matches.values():
+        match_elo_score = {'Unknown': {'expected': 0, 'actual': 0}}
+        if match['matchInfo']['queueID'] != 'deathmatch':
+            continue
+        main_weapon = get_main_weapon(match, user_id)
+        for kill in match['kills']:
+            if 'victim' not in kill:
+                kill['victim'] = kill['victim_puuid']
+            if kill['killer'] != user_id and kill['victim'] != user_id:
+                continue
+            opponent_uuid = next(iter(u for u in [kill.get('victim'), kill.get('killer')] if u != user_id and u is not None), None)
+            if opponent_uuid is None:
+                continue
+            opponent_main_weapon = get_main_weapon(match, opponent_uuid)
+            kill_weapon = get_weapon(uuid=kill.get('finishingDamage', {}).get('damageItem')).get('displayName')
+            if kill_weapon != main_weapon or opponent_main_weapon != main_weapon:
+                continue
+            if not elos.get(kill_weapon):
+                elos[kill_weapon] = [1000]
+            if not match_elo_score.get(kill_weapon):
+                match_elo_score[kill_weapon] = {'expected': 0, 'actual': 0}
+            if kill['killer'] == user_id:
+                victim = next(iter(p for p in match['players'] if p['subject'] == kill.get('victim')))
+                opponent_tier = victim.get('competitiveTier')
+                match_elo_score[kill_weapon]['expected'] += elo.expected(elos[kill_weapon][-1], get_tier_elo(opponent_tier))
+                match_elo_score[kill_weapon]['actual'] += 1
+            if kill.get('victim') == user_id:
+                opponent_tier = next(iter(p.get('competitiveTier') for p in match['players'] if p['subject'] == kill['killer']))
+                match_elo_score[kill_weapon]['expected'] += elo.expected(elos[kill_weapon][-1], get_tier_elo(opponent_tier))
+        if main_weapon not in match_elo_score or len(match_elo_score[main_weapon]) == 0:
+            continue
+        elos[main_weapon].append(elo.elo(elos[main_weapon][-1],
+                                 match_elo_score[main_weapon]['expected'],
+                                 match_elo_score[main_weapon]['actual'], k=10))
+    return elos
 
 
 def process_dm_matches(auth, matches, user_id):
@@ -347,6 +393,19 @@ def plot_dm_games(username, games, weapon=None, metric='kd'):
         plot_dm_games_for_weapon(username, games, "all weapons", metric)
 
 
+def plot_elo_dm_games(username, games, weapon):
+    elos = games[weapon]
+    en = [i for i, d in enumerate(elos)]
+    plt.plot(en, elos, 'b')
+    plt.yticks(list(get_tier_elo(t.get('tier')) for t in get_competitive_tiers()),
+               list(t.get('tierName') for t in get_competitive_tiers()))
+    plt.grid(b=True, which='major', axis='y', color='#EEEEEE', linestyle='-')
+    plt.xlabel('Matches')
+    plt.ylabel('Elo')
+    plt.title(f'Deathmatch Elo for {username} with {weapon}'.format(username=username, weapon=weapon))
+    plt.show()
+
+
 def plot_dm_games_for_weapon(username, games, weapon, metric='kd'):
     games = sorted(games, key=lambda i: i['date'])
     if not games:
@@ -406,6 +465,7 @@ def valstats(username, zone, plot, print_, db_name, weapon):
     user_id = get_user_id(session)
     if not user_id:
         return
+    print("Loading database")
     if session.query(Match.id).count() == 0:
         matches = file_to_object(db_name) or {}
         for key, data in matches.items():
@@ -421,12 +481,14 @@ def valstats(username, zone, plot, print_, db_name, weapon):
             session.add(Match(id=key, data=json.dumps(data)))
         session.commit()
         matches.update(new_matches)
+    elo_dm_matches = process_dms_for_elo(matches, user_id)
     comp_matches = process_comp_matches(matches, user_id)
     dm_matches = process_dm_matches(auth, matches, user_id)
     if print_:
         print_comp_games(comp_matches)
         print_dm_games(dm_matches)
     if plot:
+        plot_elo_dm_games(username, elo_dm_matches, weapon)
         # plot_dm_games(username, dm_matches, weapon, 'kd')
         plot_dm_games(username, dm_matches, weapon, 'performance')
         plot_comp_games(username, comp_matches)

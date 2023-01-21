@@ -1,14 +1,16 @@
 #! /usr/bin/env python
 import json
+import random
 from datetime import datetime, date
 from functools import lru_cache
-import elo
+from statistics import median
+
 import click
 import matplotlib.pyplot as plt
 import numpy as np
-from statistics import median
 from dateutil import parser, tz
 
+import elo
 from auth import Auth, requests_retry_session
 from database import file_to_object, get_session, Match, User
 
@@ -21,18 +23,28 @@ auth = None
 plt.rcParams['ytick.right'] = plt.rcParams['ytick.labelright'] = True
 plt.rcParams['ytick.left'] = plt.rcParams['ytick.labelleft'] = False
 
-@lru_cache()
+elo_map = {
+    3: 810, 4: 861, 5: 909,
+    6: 1072, 7: 1087, 8: 1145,
+    9: 1150, 10: 1156, 11: 1163,
+    12: 1170, 13: 1175, 14: 1180,
+    15: 1185, 16: 1191, 17: 1196,
+    18: 1205, 19: 1212, 20: 1218,
+    21: 1226, 22: 1231, 23: 1281,
+    24: 1290, 25: 1354, 26: 1373,
+    27: 1391}
+
+
 def get_tier_elo(tier):
-    if not tier:
-        return 1000
-    return tier * 100 - (AVERAGE_TIER - 10) * 100
+    return elo_map.get(tier, 1000)
+
 
 @lru_cache
 def get_user_id(session):
     print("Getting user id", flush=True)
-    user_id = session.query(User.id).\
-        filter(User.name == auth.name).\
-        filter(User.tag == auth.tag).\
+    user_id = session.query(User.id). \
+        filter(User.name == auth.name). \
+        filter(User.tag == auth.tag). \
         one_or_none()
     if user_id:
         return user_id[0]
@@ -247,44 +259,105 @@ def get_dm_weight(main_weapon, avg_tier, date_of_match):
     return tier_weight * weapon_weight
 
 
+def elo_gain_for_match_for_user(match, user_id, initial_elo=get_tier_elo(AVERAGE_TIER)):
+    match_elo_score = {'Unknown': {'expected': 0, 'actual': 0}}
+    main_weapon = get_main_weapon(match, user_id)
+    for kill in match['kills']:
+        if 'victim' not in kill:
+            kill['victim'] = kill['victim_puuid']
+        if kill['killer'] != user_id and kill['victim'] != user_id:
+            continue
+        opponent_uuid = next(
+            iter(u for u in [kill.get('victim'), kill.get('killer')] if u != user_id and u is not None), None)
+        if opponent_uuid is None:
+            continue
+        opponent_main_weapon = get_main_weapon(match, opponent_uuid)
+        kill_weapon = get_weapon(uuid=kill.get('finishingDamage', {}).get('damageItem')).get('displayName')
+        if kill_weapon != main_weapon or opponent_main_weapon != main_weapon:
+            continue
+        if not match_elo_score.get(kill_weapon):
+            match_elo_score[kill_weapon] = {'expected': 0, 'actual': 0}
+        if kill['killer'] == user_id:
+            victim = next(iter(p for p in match['players'] if p['subject'] == kill.get('victim')))
+            opponent_tier = victim.get('competitiveTier')
+            match_elo_score[kill_weapon]['expected'] += elo.expected(initial_elo, get_tier_elo(opponent_tier))
+            match_elo_score[kill_weapon]['actual'] += 1
+        if kill.get('victim') == user_id:
+            opponent_tier = next(
+                iter(p.get('competitiveTier') for p in match['players'] if p['subject'] == kill['killer']))
+            match_elo_score[kill_weapon]['expected'] += elo.expected(initial_elo, get_tier_elo(opponent_tier))
+    if main_weapon not in match_elo_score or len(match_elo_score[main_weapon]) == 0:
+        return 0
+    new_elo = elo.elo(initial_elo, match_elo_score[main_weapon]['expected'],
+                      match_elo_score[main_weapon]['actual'], k=2)
+    return new_elo - initial_elo
+
+
 def process_dms_for_elo(matches, user_id):
     print("Processing deathmatch games for elo", flush=True)
     elos = {'Unknown': [0]}
     for match in matches.values():
-        match_elo_score = {'Unknown': {'expected': 0, 'actual': 0}}
         if match['matchInfo']['queueID'] != 'deathmatch':
             continue
         main_weapon = get_main_weapon(match, user_id)
-        for kill in match['kills']:
-            if 'victim' not in kill:
-                kill['victim'] = kill['victim_puuid']
-            if kill['killer'] != user_id and kill['victim'] != user_id:
-                continue
-            opponent_uuid = next(iter(u for u in [kill.get('victim'), kill.get('killer')] if u != user_id and u is not None), None)
-            if opponent_uuid is None:
-                continue
-            opponent_main_weapon = get_main_weapon(match, opponent_uuid)
-            kill_weapon = get_weapon(uuid=kill.get('finishingDamage', {}).get('damageItem')).get('displayName')
-            if kill_weapon != main_weapon or opponent_main_weapon != main_weapon:
-                continue
-            if not elos.get(kill_weapon):
-                elos[kill_weapon] = [1000]
-            if not match_elo_score.get(kill_weapon):
-                match_elo_score[kill_weapon] = {'expected': 0, 'actual': 0}
-            if kill['killer'] == user_id:
-                victim = next(iter(p for p in match['players'] if p['subject'] == kill.get('victim')))
-                opponent_tier = victim.get('competitiveTier')
-                match_elo_score[kill_weapon]['expected'] += elo.expected(elos[kill_weapon][-1], get_tier_elo(opponent_tier))
-                match_elo_score[kill_weapon]['actual'] += 1
-            if kill.get('victim') == user_id:
-                opponent_tier = next(iter(p.get('competitiveTier') for p in match['players'] if p['subject'] == kill['killer']))
-                match_elo_score[kill_weapon]['expected'] += elo.expected(elos[kill_weapon][-1], get_tier_elo(opponent_tier))
-        if main_weapon not in match_elo_score or len(match_elo_score[main_weapon]) == 0:
-            continue
-        elos[main_weapon].append(elo.elo(elos[main_weapon][-1],
-                                 match_elo_score[main_weapon]['expected'],
-                                 match_elo_score[main_weapon]['actual'], k=10))
+        if main_weapon not in elos:
+            elos[main_weapon] = [get_tier_elo(AVERAGE_TIER)]
+        elo_gain = elo_gain_for_match_for_user(match, user_id, elos.get(main_weapon)[-1])
+        elos[main_weapon].append(elos.get(main_weapon)[-1] + elo_gain)
     return elos
+
+
+def _calibration_score(matches, tier=AVERAGE_TIER, weapon='Vandal'):
+    res = 0
+    for match in matches.values():
+        match_res = 0
+        if match['matchInfo']['queueID'] != 'deathmatch':
+            continue
+        players = [p for p in match.get('players') if
+                   p.get('competitiveTier') == tier and
+                   get_main_weapon(match, p.get('subject')) == weapon]
+        if len(players) < 2:
+            continue
+        for player in players:
+            match_res += elo_gain_for_match_for_user(match, player.get('subject'), get_tier_elo(tier))
+        res += match_res / len(players)
+    return res
+
+
+def calibrate_elo(matches):
+    ITERATIONS = 1000
+    NUDGE_DISTANCE = 1
+    MIN_TIER_DIFF = 5
+    previous = []
+    for i in range(ITERATIONS):
+        print(f"\nIteration {i+1}")
+        scores = {}
+        for tier in get_competitive_tiers():
+            if tier.get('tier') < 3:
+                continue
+            score = _calibration_score(matches, tier=tier.get('tier'))
+            # print(f"Calibration score for tier {tier.get('tierName')} is {score}")
+            scores[tier.get('tier')] = score
+        largest = max(scores, key=lambda y: abs(scores[y]))
+        print(f"Worst value was {scores[largest]} for {get_tier_by_number(largest).get('tierName')}")
+        if len(previous) > len(set(previous)):
+            largest = random.randint(3, 27)
+            print(f"Loop Detected. Adjusting {scores[largest]} "
+                  f"for {get_tier_by_number(largest).get('tierName')} instead")
+            previous = []
+        if scores[largest] > 0:
+            while elo_map[largest] + MIN_TIER_DIFF >= elo_map[min(largest + 1, 27)]:
+                largest += 1
+            elo_map[largest] += NUDGE_DISTANCE
+        else:
+            while elo_map[largest] - MIN_TIER_DIFF <= elo_map[max(largest - 1, 3)]:
+                largest -= 1
+            elo_map[largest] -= NUDGE_DISTANCE
+        print(f"Adjusting elo to {elo_map[largest]} for {get_tier_by_number(largest).get('tierName')}")
+        previous.append(tuple([v for v in elo_map.values()]))
+        if i % 100 == 0:
+            print(elo_map)
+    print(elo_map)
 
 
 def process_dm_matches(auth, matches, user_id):
@@ -333,7 +406,7 @@ def print_dm_games(games: list):
         print(f"{get_tier_by_number(round(game['avg_tier'])).get('tierName')} - {game['performance']}")
         if len(running_average) > RUNNING_AVERAGE:
             running_average = running_average[-RUNNING_AVERAGE:]
-            #print("Running average: {}".format(round(sum(running_average) / len(running_average), 2)))
+            # print("Running average: {}".format(round(sum(running_average) / len(running_average), 2)))
             print("Running median: {}".format(round(median(running_average), 2)))
         print("-----", flush=True)
 
@@ -397,8 +470,9 @@ def plot_elo_dm_games(username, games, weapon):
     elos = games[weapon]
     en = [i for i, d in enumerate(elos)]
     plt.plot(en, elos, 'b')
-    plt.yticks(list(get_tier_elo(t.get('tier')) for t in get_competitive_tiers()),
-               list(t.get('tierName') for t in get_competitive_tiers()))
+    tiers = [t for t in get_competitive_tiers() if "Un" not in t.get('tierName')]
+    plt.yticks(list(get_tier_elo(t.get('tier')) for t in tiers),
+               list(t.get('tierName') for t in tiers))
     plt.grid(b=True, which='major', axis='y', color='#EEEEEE', linestyle='-')
     plt.xlabel('Matches')
     plt.ylabel('Elo')
@@ -481,6 +555,9 @@ def valstats(username, zone, plot, print_, db_name, weapon):
             session.add(Match(id=key, data=json.dumps(data)))
         session.commit()
         matches.update(new_matches)
+
+    # calibrate_elo(matches)
+
     elo_dm_matches = process_dms_for_elo(matches, user_id)
     comp_matches = process_comp_matches(matches, user_id)
     dm_matches = process_dm_matches(auth, matches, user_id)

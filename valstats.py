@@ -353,7 +353,7 @@ def calibrate_elo(matches):
             while elo_map[largest] - MIN_TIER_DIFF <= elo_map[max(largest - 1, 3)]:
                 largest -= 1
             elo_map[largest] -= NUDGE_DISTANCE
-        print(f"Adjusting elo to {elo_map[largest]} for {get_tier_by_number(largest).get('tierName')}")
+        print(f"Adjusting elo to {elo_map[largest]} for {get_tier_by_number(largest).get('tierName')}", flush=True)
         previous.append(tuple([v for v in elo_map.values()]))
         if i % 100 == 0:
             print(elo_map)

@@ -36,7 +36,7 @@ elo_map = {
 
 
 def get_tier_elo(tier):
-    return elo_map.get(tier, 1000)
+    return elo_map.get(tier)
 
 
 @lru_cache
@@ -280,11 +280,15 @@ def elo_gain_for_match_for_user(match, user_id, initial_elo=get_tier_elo(AVERAGE
         if kill['killer'] == user_id:
             victim = next(iter(p for p in match['players'] if p['subject'] == kill.get('victim')))
             opponent_tier = victim.get('competitiveTier')
+            if opponent_tier is None:
+                continue
             match_elo_score[kill_weapon]['expected'] += elo.expected(initial_elo, get_tier_elo(opponent_tier))
             match_elo_score[kill_weapon]['actual'] += 1
         if kill.get('victim') == user_id:
             opponent_tier = next(
                 iter(p.get('competitiveTier') for p in match['players'] if p['subject'] == kill['killer']))
+            if opponent_tier is None:
+                continue
             match_elo_score[kill_weapon]['expected'] += elo.expected(initial_elo, get_tier_elo(opponent_tier))
     if main_weapon not in match_elo_score or len(match_elo_score[main_weapon]) == 0:
         return 0
@@ -328,29 +332,30 @@ def calibrate_elo(matches):
     ITERATIONS = 1000
     NUDGE_DISTANCE = 1
     MIN_TIER_DIFF = 5
+    MIN_TIER = min([k for k in elo_map.keys()])
+    MAX_TIER = max([k for k in elo_map.keys()])
     previous = []
     for i in range(ITERATIONS):
         print(f"\nIteration {i+1}")
         scores = {}
         for tier in get_competitive_tiers():
-            if tier.get('tier') < 3:
+            if tier.get('tier') < MIN_TIER:
                 continue
             score = _calibration_score(matches, tier=tier.get('tier'))
-            # print(f"Calibration score for tier {tier.get('tierName')} is {score}")
             scores[tier.get('tier')] = score
         largest = max(scores, key=lambda y: abs(scores[y]))
         print(f"Worst value was {scores[largest]} for {get_tier_by_number(largest).get('tierName')}")
         if len(previous) > len(set(previous)):
-            largest = random.randint(3, 27)
+            largest = random.randint(MIN_TIER, MAX_TIER)
             print(f"Loop Detected. Adjusting {scores[largest]} "
                   f"for {get_tier_by_number(largest).get('tierName')} instead")
             previous = []
         if scores[largest] > 0:
-            while elo_map[largest] + MIN_TIER_DIFF >= elo_map[min(largest + 1, 27)]:
+            while largest < MAX_TIER and elo_map[largest] + MIN_TIER_DIFF >= elo_map[largest + 1]:
                 largest += 1
             elo_map[largest] += NUDGE_DISTANCE
         else:
-            while elo_map[largest] - MIN_TIER_DIFF <= elo_map[max(largest - 1, 3)]:
+            while largest > MIN_TIER and elo_map[largest] - MIN_TIER_DIFF <= elo_map[largest - 1]:
                 largest -= 1
             elo_map[largest] -= NUDGE_DISTANCE
         print(f"Adjusting elo to {elo_map[largest]} for {get_tier_by_number(largest).get('tierName')}")

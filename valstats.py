@@ -23,17 +23,18 @@ auth = None
 plt.rcParams['ytick.right'] = plt.rcParams['ytick.labelright'] = True
 plt.rcParams['ytick.left'] = plt.rcParams['ytick.labelleft'] = False
 
-elo_map = {
-    3: 810, 4: 861, 5: 909,
-    6: 1072, 7: 1087, 8: 1145,
-    9: 1150, 10: 1156, 11: 1163,
-    12: 1170, 13: 1175, 14: 1180,
-    15: 1185, 16: 1191, 17: 1196,
-    18: 1205, 19: 1212, 20: 1218,
-    21: 1226, 22: 1231, 23: 1281,
-    24: 1290, 25: 1354, 26: 1373,
-    27: 1391}
 
+elo_map = {
+    3: 1033, 4: 1038, 5: 1044, 
+    6: 1093, 7: 1098, 8: 1103, 
+    9: 1108, 10: 1113, 11: 1121, 
+    12: 1126, 13: 1131, 14: 1136, 
+    15: 1141, 16: 1146, 17: 1151, 
+    18: 1156, 19: 1162, 20: 1168, 
+    21: 1173, 22: 1178, 23: 1191, 
+    24: 1196, 25: 1224, 26: 1229, 
+    27: 1316
+}
 
 def get_tier_elo(tier):
     return elo_map.get(tier)
@@ -293,7 +294,7 @@ def elo_gain_for_match_for_user(match, user_id, initial_elo=get_tier_elo(AVERAGE
     if main_weapon not in match_elo_score or len(match_elo_score[main_weapon]) == 0:
         return 0
     new_elo = elo.elo(initial_elo, match_elo_score[main_weapon]['expected'],
-                      match_elo_score[main_weapon]['actual'], k=2)
+                      match_elo_score[main_weapon]['actual'], k=1)
     return new_elo - initial_elo
 
 
@@ -335,17 +336,29 @@ def calibrate_elo(matches):
     MIN_TIER = min([k for k in elo_map.keys()])
     MAX_TIER = max([k for k in elo_map.keys()])
     previous = []
+    done = []
     for i in range(ITERATIONS):
         print(f"\nIteration {i+1}")
+        print(f"Done levels {done}")
+        if i % 100 == 0:
+            print(elo_map)
         scores = {}
         for tier in get_competitive_tiers():
             if tier.get('tier') < MIN_TIER:
                 continue
             score = _calibration_score(matches, tier=tier.get('tier'))
             scores[tier.get('tier')] = score
-        largest = max(scores, key=lambda y: abs(scores[y]))
+        for k, v in scores.items():
+            print(f"{k}: {v}")
+        largest = sorted(scores, key=lambda y: abs(scores[y]), reverse=True)
+        j = 0
+        while largest[j] in done:
+            j += 1
+        largest = largest[j]
+
         print(f"Worst value was {scores[largest]} for {get_tier_by_number(largest).get('tierName')}")
         if len(previous) > len(set(previous)):
+            done.append(largest)
             largest = random.randint(MIN_TIER, MAX_TIER)
             print(f"Loop Detected. Adjusting {scores[largest]} "
                   f"for {get_tier_by_number(largest).get('tierName')} instead")
@@ -354,14 +367,13 @@ def calibrate_elo(matches):
             while largest < MAX_TIER and elo_map[largest] + MIN_TIER_DIFF >= elo_map[largest + 1]:
                 largest += 1
             elo_map[largest] += NUDGE_DISTANCE
-        else:
+        elif scores[largest] < 0:
             while largest > MIN_TIER and elo_map[largest] - MIN_TIER_DIFF <= elo_map[largest - 1]:
                 largest -= 1
             elo_map[largest] -= NUDGE_DISTANCE
         print(f"Adjusting elo to {elo_map[largest]} for {get_tier_by_number(largest).get('tierName')}", flush=True)
-        previous.append(tuple([v for v in elo_map.values()]))
-        if i % 100 == 0:
-            print(elo_map)
+        print(f"Score: {sum([abs(v) for v in scores.values()])}")
+        previous.append(tuple([v for v in scores.values()]))
     print(elo_map)
 
 
@@ -561,7 +573,8 @@ def valstats(username, zone, plot, print_, db_name, weapon):
         session.commit()
         matches.update(new_matches)
 
-    # calibrate_elo(matches)
+    calibrate_elo(matches)
+    return
 
     elo_dm_matches = process_dms_for_elo(matches, user_id)
     comp_matches = process_comp_matches(matches, user_id)

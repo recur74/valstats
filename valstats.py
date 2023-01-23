@@ -573,8 +573,8 @@ def valstats(username, zone, plot, print_, db_name, weapon):
         session.commit()
         matches.update(new_matches)
 
-    calibrate_elo(matches)
-    return
+    # calibrate_elo(matches)
+    # return
 
     elo_dm_matches = process_dms_for_elo(matches, user_id)
     comp_matches = process_comp_matches(matches, user_id)

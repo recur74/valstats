@@ -1,6 +1,6 @@
 #! /usr/bin/env python
+import copy
 import json
-import random
 from datetime import datetime, date
 from functools import lru_cache
 from statistics import median
@@ -23,20 +23,20 @@ auth = None
 plt.rcParams['ytick.right'] = plt.rcParams['ytick.labelright'] = True
 plt.rcParams['ytick.left'] = plt.rcParams['ytick.labelleft'] = False
 
-
-elo_map = {
-    3: 1033, 4: 1038, 5: 1044, 
-    6: 1093, 7: 1098, 8: 1103, 
-    9: 1108, 10: 1113, 11: 1121, 
-    12: 1126, 13: 1131, 14: 1136, 
-    15: 1141, 16: 1146, 17: 1151, 
-    18: 1156, 19: 1162, 20: 1168, 
-    21: 1173, 22: 1178, 23: 1191, 
-    24: 1196, 25: 1224, 26: 1229, 
-    27: 1316
+global_elo_map = {
+    3: 1034, 4: 1039, 5: 1044,
+    6: 1093, 7: 1098, 8: 1103,
+    9: 1108, 10: 1117, 11: 1126,
+    12: 1131, 13: 1136, 14: 1141,
+    15: 1146, 16: 1151, 17: 1156,
+    18: 1161, 19: 1166, 20: 1173,
+    21: 1182, 22: 1187, 23: 1198,
+    24: 1203, 25: 1224, 26: 1234,
+    27: 1318
 }
 
-def get_tier_elo(tier):
+
+def get_tier_elo(tier, elo_map):
     return elo_map.get(tier)
 
 
@@ -260,7 +260,8 @@ def get_dm_weight(main_weapon, avg_tier, date_of_match):
     return tier_weight * weapon_weight
 
 
-def elo_gain_for_match_for_user(match, user_id, initial_elo=get_tier_elo(AVERAGE_TIER)):
+def elo_gain_for_match_for_user(match, user_id, elo_map=global_elo_map,
+                                initial_elo=get_tier_elo(AVERAGE_TIER, global_elo_map)):
     match_elo_score = {'Unknown': {'expected': 0, 'actual': 0}}
     main_weapon = get_main_weapon(match, user_id)
     for kill in match['kills']:
@@ -283,14 +284,14 @@ def elo_gain_for_match_for_user(match, user_id, initial_elo=get_tier_elo(AVERAGE
             opponent_tier = victim.get('competitiveTier')
             if opponent_tier is None:
                 continue
-            match_elo_score[kill_weapon]['expected'] += elo.expected(initial_elo, get_tier_elo(opponent_tier))
+            match_elo_score[kill_weapon]['expected'] += elo.expected(initial_elo, get_tier_elo(opponent_tier, elo_map))
             match_elo_score[kill_weapon]['actual'] += 1
         if kill.get('victim') == user_id:
             opponent_tier = next(
                 iter(p.get('competitiveTier') for p in match['players'] if p['subject'] == kill['killer']))
             if opponent_tier is None:
                 continue
-            match_elo_score[kill_weapon]['expected'] += elo.expected(initial_elo, get_tier_elo(opponent_tier))
+            match_elo_score[kill_weapon]['expected'] += elo.expected(initial_elo, get_tier_elo(opponent_tier, elo_map))
     if main_weapon not in match_elo_score or len(match_elo_score[main_weapon]) == 0:
         return 0
     new_elo = elo.elo(initial_elo, match_elo_score[main_weapon]['expected'],
@@ -306,13 +307,16 @@ def process_dms_for_elo(matches, user_id):
             continue
         main_weapon = get_main_weapon(match, user_id)
         if main_weapon not in elos:
-            elos[main_weapon] = [get_tier_elo(AVERAGE_TIER)]
-        elo_gain = elo_gain_for_match_for_user(match, user_id, elos.get(main_weapon)[-1])
+            elos[main_weapon] = [get_tier_elo(AVERAGE_TIER, global_elo_map)]
+        elo_gain = elo_gain_for_match_for_user(match=match,
+                                               user_id=user_id,
+                                               elo_map=global_elo_map,
+                                               initial_elo=elos.get(main_weapon)[-1])
         elos[main_weapon].append(elos.get(main_weapon)[-1] + elo_gain)
     return elos
 
 
-def _calibration_score(matches, tier=AVERAGE_TIER, weapon='Vandal'):
+def _calibration_score(matches, elo_map, tier=AVERAGE_TIER, weapon='Vandal'):
     res = 0
     for match in matches.values():
         match_res = 0
@@ -324,57 +328,57 @@ def _calibration_score(matches, tier=AVERAGE_TIER, weapon='Vandal'):
         if len(players) < 2:
             continue
         for player in players:
-            match_res += elo_gain_for_match_for_user(match, player.get('subject'), get_tier_elo(tier))
+            match_res += elo_gain_for_match_for_user(match, player.get('subject'), elo_map, get_tier_elo(tier, elo_map))
         res += match_res / len(players)
     return res
 
 
-def calibrate_elo(matches):
-    ITERATIONS = 1000
+def _score_all_tiers(matches, elo_map):
+    result = {'total': 0, 'tiers': {}}
+    for tier in elo_map.keys():
+        result['tiers'][tier] = _calibration_score(matches, elo_map, tier)
+    result['total'] = sum([abs(v) for v in result['tiers'].values()])
+    return result
+
+
+def _adjust_elo(tier, amount, min_diff, elo_map=global_elo_map):
+    new_elo_map = copy.copy(elo_map)
+    MIN_TIER = min([k for k in global_elo_map.keys()])
+    MAX_TIER = max([k for k in global_elo_map.keys()])
+    new_elo_map[tier] += amount
+    if amount > 0 and tier < MAX_TIER and new_elo_map[tier] + min_diff > new_elo_map[tier + 1]:
+        new_elo_map = _adjust_elo(tier + 1, 1, min_diff, elo_map=new_elo_map)
+    if amount < 0 and tier > MIN_TIER and elo_map[tier] - min_diff < elo_map[tier - 1]:
+        new_elo_map = _adjust_elo(tier - 1, -1, min_diff, elo_map=new_elo_map)
+    return new_elo_map
+
+
+def calibrate_elo(matches, init_elo_map):
     NUDGE_DISTANCE = 1
     MIN_TIER_DIFF = 5
-    MIN_TIER = min([k for k in elo_map.keys()])
-    MAX_TIER = max([k for k in elo_map.keys()])
-    previous = []
-    done = []
-    for i in range(ITERATIONS):
-        print(f"\nIteration {i+1}")
-        print(f"Done levels {done}")
-        if i % 100 == 0:
-            print(elo_map)
-        scores = {}
-        for tier in get_competitive_tiers():
-            if tier.get('tier') < MIN_TIER:
-                continue
-            score = _calibration_score(matches, tier=tier.get('tier'))
-            scores[tier.get('tier')] = score
-        for k, v in scores.items():
-            print(f"{k}: {v}")
-        largest = sorted(scores, key=lambda y: abs(scores[y]), reverse=True)
-        j = 0
-        while largest[j] in done:
-            j += 1
-        largest = largest[j]
+    best_elo_map = copy.copy(init_elo_map)
+    scores = _score_all_tiers(matches, init_elo_map)
 
-        print(f"Worst value was {scores[largest]} for {get_tier_by_number(largest).get('tierName')}")
-        if len(previous) > len(set(previous)):
-            done.append(largest)
-            largest = random.randint(MIN_TIER, MAX_TIER)
-            print(f"Loop Detected. Adjusting {scores[largest]} "
-                  f"for {get_tier_by_number(largest).get('tierName')} instead")
-            previous = []
-        if scores[largest] > 0:
-            while largest < MAX_TIER and elo_map[largest] + MIN_TIER_DIFF >= elo_map[largest + 1]:
-                largest += 1
-            elo_map[largest] += NUDGE_DISTANCE
-        elif scores[largest] < 0:
-            while largest > MIN_TIER and elo_map[largest] - MIN_TIER_DIFF <= elo_map[largest - 1]:
-                largest -= 1
-            elo_map[largest] -= NUDGE_DISTANCE
-        print(f"Adjusting elo to {elo_map[largest]} for {get_tier_by_number(largest).get('tierName')}", flush=True)
-        print(f"Score: {sum([abs(v) for v in scores.values()])}")
-        previous.append(tuple([v for v in scores.values()]))
-    print(elo_map)
+    last_score = scores['total']
+    best_score = None
+    iteration = 1
+    while best_score is None or best_score < last_score:
+        print(f"Iteration {iteration}")
+        print(f"Current best elo-map {best_elo_map}")
+        last_score = best_score if best_score is not None else last_score
+        test_scores = {}
+        for tier in init_elo_map.keys():
+            print(f"Checking tier {get_tier_by_number(tier).get('tierName')}({tier})")
+            score = scores['tiers'][tier]
+            if score == 0:
+                continue
+            test_elo_map = _adjust_elo(tier=tier, amount=NUDGE_DISTANCE, min_diff=MIN_TIER_DIFF, elo_map=best_elo_map)
+            test_scores[tier] = _score_all_tiers(matches, test_elo_map)['total']
+        smallest = sorted(test_scores, key=lambda y: abs(test_scores[y]))[0]
+        print(f"The best change was {get_tier_by_number(smallest).get('tierName')} with {test_scores[smallest]}")
+        best_elo_map = _adjust_elo(tier=smallest, amount=NUDGE_DISTANCE, min_diff=MIN_TIER_DIFF, elo_map=best_elo_map)
+        best_score = test_scores[smallest]
+        iteration += 1
 
 
 def process_dm_matches(auth, matches, user_id):
@@ -488,7 +492,7 @@ def plot_elo_dm_games(username, games, weapon):
     en = [i for i, d in enumerate(elos)]
     plt.plot(en, elos, 'b')
     tiers = [t for t in get_competitive_tiers() if "Un" not in t.get('tierName')]
-    plt.yticks(list(get_tier_elo(t.get('tier')) for t in tiers),
+    plt.yticks(list(get_tier_elo(t.get('tier'), global_elo_map) for t in tiers),
                list(t.get('tierName') for t in tiers))
     plt.grid(b=True, which='major', axis='y', color='#EEEEEE', linestyle='-')
     plt.xlabel('Matches')
@@ -573,7 +577,7 @@ def valstats(username, zone, plot, print_, db_name, weapon):
         session.commit()
         matches.update(new_matches)
 
-    # calibrate_elo(matches)
+    # calibrate_elo(matches, global_elo_map)
     # return
 
     elo_dm_matches = process_dms_for_elo(matches, user_id)

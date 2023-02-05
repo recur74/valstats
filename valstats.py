@@ -575,6 +575,8 @@ def valstats(username, zone, plot, print_, db_name, weapon):
             session.add(Match(id=key, data=json.dumps(data)))
         session.commit()
         matches.update(new_matches)
+    matches = sorted(matches.values(), key=lambda m: m.get('matchInfo').get('game_start'))
+    matches = {m.get('matchInfo').get('matchid'): m for m in matches}
 
     # calibrate_elo(matches, global_elo_map)
     # return

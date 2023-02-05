@@ -454,6 +454,7 @@ def plot_comp_games(username: str, games: list):
     dates = [g['date'] for g in games]
     en_dates = [i for i, d in enumerate(dates)]
 
+    plt.figure()
     plt.plot(dates, mmr, label="Est. MMR")
     plt.plot(dates, ranks, label="Rank")
     z = np.polyfit(en_dates, mmr, 1)
@@ -470,8 +471,6 @@ def plot_comp_games(username: str, games: list):
 
     plt.legend()
     plt.title('RR vs MMR for {username}'.format(username=username))
-
-    plt.show()
 
 
 def plot_dm_games(username, games, weapon=None, metric='kd'):
@@ -490,6 +489,7 @@ def plot_dm_games(username, games, weapon=None, metric='kd'):
 def plot_elo_dm_games(username, games, weapon):
     elos = games[weapon]
     en = [i for i, d in enumerate(elos)]
+    plt.figure()
     plt.plot(en, elos, 'b')
     tiers = [t for t in get_competitive_tiers() if "Un" not in t.get('tierName')]
     plt.yticks(list(get_tier_elo(t.get('tier'), global_elo_map) for t in tiers),
@@ -498,7 +498,6 @@ def plot_elo_dm_games(username, games, weapon):
     plt.xlabel('Matches')
     plt.ylabel('Elo')
     plt.title(f'Deathmatch Elo for {username} with {weapon}'.format(username=username, weapon=weapon))
-    plt.show()
 
 
 def plot_dm_games_for_weapon(username, games, weapon, metric='kd'):
@@ -520,6 +519,7 @@ def plot_dm_games_for_weapon(username, games, weapon, metric='kd'):
 
     dates = [g['date'] for g in games]
     en_dates = [i for i, d in enumerate(dates)]
+    plt.figure()
     plt.scatter(dates, [g['kd'] for g in games], color='gray', label=f"kd")
     plt.scatter(dates, metric_values, color='blue', label=f"{metric}")
     plt.plot(dates, ra, color='orange', label="Running Average")
@@ -538,7 +538,6 @@ def plot_dm_games_for_weapon(username, games, weapon, metric='kd'):
     plt.ylabel(metric)
     plt.legend()
     plt.title(f'Deathmatch {metric} for {username} with {weapon}'.format(username=username, weapon=weapon))
-    plt.show()
 
 
 @click.command()
@@ -591,6 +590,7 @@ def valstats(username, zone, plot, print_, db_name, weapon):
         # plot_dm_games(username, dm_matches, weapon, 'kd')
         plot_dm_games(username, dm_matches, weapon, 'performance')
         plot_comp_games(username, comp_matches)
+        plt.show()
 
 
 if __name__ == '__main__':

@@ -470,7 +470,7 @@ def plot_comp_games(username: str, games: list):
     plt.ylabel('Rank')
 
     plt.legend()
-    plt.title('RR vs MMR for {username}'.format(username=username))
+    plt.title('Competitive RR vs MMR for {username}'.format(username=username))
 
 
 def plot_dm_games(username, games, weapon=None, metric='kd'):

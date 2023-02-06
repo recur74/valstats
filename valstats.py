@@ -26,13 +26,13 @@ plt.rcParams['ytick.left'] = plt.rcParams['ytick.labelleft'] = False
 global_elo_map = {
     3: 1034, 4: 1039, 5: 1044,
     6: 1093, 7: 1098, 8: 1103,
-    9: 1108, 10: 1117, 11: 1126,
-    12: 1131, 13: 1136, 14: 1141,
-    15: 1146, 16: 1151, 17: 1156,
-    18: 1161, 19: 1166, 20: 1173,
-    21: 1182, 22: 1187, 23: 1198,
-    24: 1203, 25: 1224, 26: 1234,
-    27: 1318
+    9: 1116, 10: 1121, 11: 1126,
+    12: 1131, 13: 1141, 14: 1158,
+    15: 1163, 16: 1168, 17: 1173,
+    18: 1178, 19: 1183, 20: 1188,
+    21: 1210, 22: 1215, 23: 1257,
+    24: 1262, 25: 1267, 26: 1272,
+    27: 1348
 }
 
 
@@ -265,13 +265,15 @@ def get_dm_weight(main_weapon, avg_tier, date_of_match):
 
 
 def elo_gain_for_match_for_user(match, user_id, elo_map=global_elo_map,
-                                initial_elo=get_tier_elo(AVERAGE_TIER, global_elo_map)):
+                                initial_elo=get_tier_elo(AVERAGE_TIER, global_elo_map), excluded_users=[]):
     match_elo_score = {'Unknown': {'expected': 0, 'actual': 0}}
     main_weapon = get_main_weapon(match, user_id)
     for kill in match['kills']:
         if 'victim' not in kill:
             kill['victim'] = kill['victim_puuid']
         if kill['killer'] != user_id and kill['victim'] != user_id:
+            continue
+        if kill['killer'] in excluded_users or kill['victim'] in excluded_users:
             continue
         opponent_uuid = next(
             iter(u for u in [kill.get('victim'), kill.get('killer')] if u != user_id and u is not None), None)
@@ -320,7 +322,7 @@ def process_dms_for_elo(matches, user_id):
     return elos
 
 
-def _calibration_score(matches, elo_map, tier=AVERAGE_TIER, weapon='Vandal'):
+def _calibration_score(matches, elo_map, tier=AVERAGE_TIER, weapon='Vandal', excluded_users=[]):
     res = 0
     for match in matches.values():
         match_res = 0
@@ -328,19 +330,19 @@ def _calibration_score(matches, elo_map, tier=AVERAGE_TIER, weapon='Vandal'):
             continue
         players = [p for p in match.get('players') if
                    p.get('competitiveTier') == tier and
-                   get_main_weapon(match, p.get('subject')) == weapon]
+                   get_main_weapon(match, p.get('subject')) == weapon and p.get('subject') not in excluded_users]
         if len(players) < 2:
             continue
         for player in players:
-            match_res += elo_gain_for_match_for_user(match, player.get('subject'), elo_map, get_tier_elo(tier, elo_map))
+            match_res += elo_gain_for_match_for_user(match, player.get('subject'), elo_map, get_tier_elo(tier, elo_map), excluded_users=excluded_users)
         res += match_res / len(players)
     return res
 
 
-def _score_all_tiers(matches, elo_map):
+def _score_all_tiers(matches, elo_map, excluded_users=[]):
     result = {'total': 0, 'tiers': {}}
     for tier in elo_map.keys():
-        result['tiers'][tier] = _calibration_score(matches, elo_map, tier)
+        result['tiers'][tier] = _calibration_score(matches, elo_map, tier, excluded_users=excluded_users)
     result['total'] = sum([abs(v) for v in result['tiers'].values()])
     return result
 
@@ -357,11 +359,11 @@ def _adjust_elo(tier, amount, min_diff, elo_map=global_elo_map):
     return new_elo_map
 
 
-def calibrate_elo(matches, init_elo_map):
+def calibrate_elo(matches, init_elo_map, excluded_users=[]):
     NUDGE_DISTANCE = 1
     MIN_TIER_DIFF = 5
     best_elo_map = copy.copy(init_elo_map)
-    scores = _score_all_tiers(matches, init_elo_map)
+    scores = _score_all_tiers(matches, init_elo_map, excluded_users=excluded_users)
 
     last_score = scores['total']
     best_score = None
@@ -582,7 +584,7 @@ def valstats(username, zone, plot, print_, db_name, weapon):
     matches = sorted(matches.values(), key=lambda m: m.get('matchInfo').get('gameStartMillis'))
     matches = {m.get('matchInfo').get('matchid'): m for m in matches}
 
-    # calibrate_elo(matches, global_elo_map)
+    # calibrate_elo(matches, global_elo_map, excluded_users=[user_id])
     # return
 
     elo_dm_matches = process_dms_for_elo(matches, user_id)

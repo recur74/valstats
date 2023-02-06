@@ -73,15 +73,19 @@ def get_user_mmr(user_id):
 
 @lru_cache
 def get_tier_by_number(number):
+    print(f"number: {number}", flush=True)
     tiers = get_competitive_tiers()
     return next(t for t in tiers if t.get('tier') == number)
 
 
 @lru_cache
 def get_competitive_tiers():
-    url = "https://valorant-api.com/v1/competitivetiers"
+    season_url = "https://valorant-api.com/v1/seasons/competitive"
+    response = requests_retry_session().get(season_url).json()
+    season_tier_id = max(response.get('data', []), key=lambda x:x['startTime']).get('competitiveTiersUuid')
+    url = f"https://valorant-api.com/v1/competitivetiers/{season_tier_id}"
     response = requests_retry_session().get(url).json()
-    current_episode = response.get('data')[-1]
+    current_episode = response.get('data')
     tiers = current_episode.get('tiers')
     for t in tiers:
         t['tierName'] = t['tierName'].title()
@@ -368,14 +372,14 @@ def calibrate_elo(matches, init_elo_map):
         last_score = best_score if best_score is not None else last_score
         test_scores = {}
         for tier in init_elo_map.keys():
-            print(f"Checking tier {get_tier_by_number(tier).get('tierName')}({tier})")
+            print(f"Checking tier {get_tier_by_number(tier).get('tierName')}({tier})", flush=True)
             score = scores['tiers'][tier]
             if score == 0:
                 continue
             test_elo_map = _adjust_elo(tier=tier, amount=NUDGE_DISTANCE, min_diff=MIN_TIER_DIFF, elo_map=best_elo_map)
             test_scores[tier] = _score_all_tiers(matches, test_elo_map)['total']
         smallest = sorted(test_scores, key=lambda y: abs(test_scores[y]))[0]
-        print(f"The best change was {get_tier_by_number(smallest).get('tierName')} with {test_scores[smallest]}")
+        print(f"The best change was {get_tier_by_number(smallest).get('tierName')} with {test_scores[smallest]}", flush=True)
         best_elo_map = _adjust_elo(tier=smallest, amount=NUDGE_DISTANCE, min_diff=MIN_TIER_DIFF, elo_map=best_elo_map)
         best_score = test_scores[smallest]
         iteration += 1

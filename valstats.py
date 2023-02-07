@@ -73,7 +73,6 @@ def get_user_mmr(user_id):
 
 @lru_cache
 def get_tier_by_number(number):
-    print(f"number: {number}", flush=True)
     tiers = get_competitive_tiers()
     return next(t for t in tiers if t.get('tier') == number)
 

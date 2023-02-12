@@ -27,11 +27,11 @@ global_elo_map = {
     3: 1034, 4: 1039, 5: 1044,
     6: 1093, 7: 1098, 8: 1103,
     9: 1116, 10: 1121, 11: 1126,
-    12: 1131, 13: 1141, 14: 1158,
-    15: 1163, 16: 1168, 17: 1173,
-    18: 1178, 19: 1183, 20: 1188,
-    21: 1210, 22: 1215, 23: 1257,
-    24: 1262, 25: 1267, 26: 1272,
+    12: 1131, 13: 1145, 14: 1163,
+    15: 1168, 16: 1173, 17: 1178,
+    18: 1183, 19: 1188, 20: 1193,
+    21: 1214, 22: 1219, 23: 1261,
+    24: 1266, 25: 1271, 26: 1276,
     27: 1348
 }
 
@@ -553,7 +553,8 @@ def plot_dm_games_for_weapon(username, games, weapon, metric='kd'):
 @click.option('--db-name', default=None, help="Database name and path. Default is ./{username}.db")
 @click.option('--weapon', default=None, help="Show dm stats for this weapon only",
               type=click.Choice([d.get('displayName').lower() for d in get_all_weapons()]))
-def valstats(username, zone, plot, print_, db_name, weapon):
+@click.option('--calibrate/--no-calibrate', default=False)
+def valstats(username, zone, plot, print_, db_name, weapon, calibrate):
     if db_name is None:
         db_name = username + '.db'
     weapon = weapon.title() if weapon else weapon
@@ -582,9 +583,10 @@ def valstats(username, zone, plot, print_, db_name, weapon):
         matches.update(new_matches)
     matches = sorted(matches.values(), key=lambda m: m.get('matchInfo').get('gameStartMillis'))
     matches = {m.get('matchInfo').get('matchid'): m for m in matches}
-
-    # calibrate_elo(matches, global_elo_map, excluded_users=[user_id])
-    # return
+    
+    if calibrate:
+        calibrate_elo(matches, global_elo_map, excluded_users=[user_id])
+        return
 
     elo_dm_matches = process_dms_for_elo(matches, user_id)
     comp_matches = process_comp_matches(matches, user_id)

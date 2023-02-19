@@ -81,7 +81,7 @@ def get_tier_by_number(number):
 def get_competitive_tiers():
     season_url = "https://valorant-api.com/v1/seasons/competitive"
     response = requests_retry_session().get(season_url).json()
-    season_tier_id = max(response.get('data', []), key=lambda x:x['startTime']).get('competitiveTiersUuid')
+    season_tier_id = max(response.get('data', []), key=lambda x: x['startTime']).get('competitiveTiersUuid')
     url = f"https://valorant-api.com/v1/competitivetiers/{season_tier_id}"
     response = requests_retry_session().get(url).json()
     current_episode = response.get('data')
@@ -364,13 +364,12 @@ def calibrate_elo(matches, init_elo_map, excluded_users=[]):
     best_elo_map = copy.copy(init_elo_map)
     scores = _score_all_tiers(matches, init_elo_map, excluded_users=excluded_users)
 
-    last_score = scores['total']
-    best_score = None
+    best_score = scores['total']
+    print(f"Inital score {best_score}")
     iteration = 1
-    while best_score is None or best_score < last_score:
+    while True:
         print(f"Iteration {iteration}")
         print(f"Current best elo-map {best_elo_map}")
-        last_score = best_score if best_score is not None else last_score
         test_scores = {}
         for tier in init_elo_map.keys():
             print(f"Checking tier {get_tier_by_number(tier).get('tierName')}({tier})", flush=True)
@@ -378,11 +377,12 @@ def calibrate_elo(matches, init_elo_map, excluded_users=[]):
             if score == 0:
                 continue
             test_elo_map = _adjust_elo(tier=tier, amount=NUDGE_DISTANCE, min_diff=MIN_TIER_DIFF, elo_map=best_elo_map)
-            test_scores[tier] = _score_all_tiers(matches, test_elo_map)['total']
+            test_scores[tier] = _score_all_tiers(matches, test_elo_map, excluded_users=excluded_users)['total']
         smallest = sorted(test_scores, key=lambda y: abs(test_scores[y]))[0]
         print(f"The best change was {get_tier_by_number(smallest).get('tierName')} with {test_scores[smallest]}", flush=True)
         best_elo_map = _adjust_elo(tier=smallest, amount=NUDGE_DISTANCE, min_diff=MIN_TIER_DIFF, elo_map=best_elo_map)
-        best_score = test_scores[smallest]
+        if test_scores[smallest] >= best_score:
+            break
         iteration += 1
 
 

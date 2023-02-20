@@ -365,7 +365,7 @@ def calibrate_elo(matches, init_elo_map, excluded_users=[]):
     scores = _score_all_tiers(matches, init_elo_map, excluded_users=excluded_users)
 
     best_score = scores['total']
-    print(f"Inital score {best_score}")
+    print(f"Initial score {best_score}")
     iteration = 1
     while True:
         print(f"Iteration {iteration}")
@@ -376,12 +376,13 @@ def calibrate_elo(matches, init_elo_map, excluded_users=[]):
             score = scores['tiers'][tier]
             if score == 0:
                 continue
-            test_elo_map = _adjust_elo(tier=tier, amount=NUDGE_DISTANCE, min_diff=MIN_TIER_DIFF, elo_map=best_elo_map)
-            test_scores[tier] = _score_all_tiers(matches, test_elo_map, excluded_users=excluded_users)['total']
-        smallest = sorted(test_scores, key=lambda y: abs(test_scores[y]))[0]
-        print(f"The best change was {get_tier_by_number(smallest).get('tierName')} with {test_scores[smallest]}", flush=True)
-        best_elo_map = _adjust_elo(tier=smallest, amount=NUDGE_DISTANCE, min_diff=MIN_TIER_DIFF, elo_map=best_elo_map)
-        if test_scores[smallest] >= best_score:
+            amount = int(NUDGE_DISTANCE * (score/abs(score)))
+            test_elo_map = _adjust_elo(tier=tier, amount=amount, min_diff=MIN_TIER_DIFF, elo_map=best_elo_map)
+            test_scores[tier] = (_score_all_tiers(matches, test_elo_map, excluded_users=excluded_users)['total'], amount)
+        smallest = sorted(test_scores, key=lambda y: abs(test_scores[y][0]))[0]
+        print(f"The best change was {get_tier_by_number(smallest).get('tierName')}[{test_scores[smallest][1]}] with {test_scores[smallest][0]}", flush=True)
+        best_elo_map = _adjust_elo(tier=smallest, amount=test_scores[smallest][1], min_diff=MIN_TIER_DIFF, elo_map=best_elo_map)
+        if test_scores[smallest][0] >= best_score:
             break
         iteration += 1
 

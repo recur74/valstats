@@ -26,14 +26,15 @@ plt.rcParams['ytick.left'] = plt.rcParams['ytick.labelleft'] = False
 global_elo_map = {
     3: 1050, 4: 1060, 5: 1070,
     6: 1096, 7: 1101, 8: 1106,
-    9: 1111, 10: 1115, 11: 1119,
-    12: 1123, 13: 1162, 14: 1166,
-    15: 1170, 16: 1174, 17: 1178,
-    18: 1183, 19: 1187, 20: 1226,
-    21: 1245, 22: 1249, 23: 1253,
-    24: 1264, 25: 1271, 26: 1275,
+    9: 1111, 10: 1116, 11: 1121,
+    12: 1126, 13: 1162, 14: 1167,
+    15: 1172, 16: 1177, 17: 1182,
+    18: 1187, 19: 1192, 20: 1226,
+    21: 1245, 22: 1250, 23: 1255,
+    24: 1264, 25: 1271, 26: 1276,
     27: 1323
 }
+
 
 def get_tier_elo(tier, elo_map):
     return elo_map.get(tier)
@@ -350,9 +351,9 @@ def _adjust_elo(tier, amount, min_diff, elo_map=global_elo_map):
     MIN_TIER = min([k for k in global_elo_map.keys()])
     MAX_TIER = max([k for k in global_elo_map.keys()])
     new_elo_map[tier] += amount
-    if amount > 0 and tier < MAX_TIER and new_elo_map[tier] + min_diff > new_elo_map[tier + 1]:
+    if amount > 0 and tier < MAX_TIER and new_elo_map[tier] + min_diff >= new_elo_map[tier + 1]:
         new_elo_map = _adjust_elo(tier + 1, 1, min_diff, elo_map=new_elo_map)
-    if amount < 0 and tier > MIN_TIER and elo_map[tier] - min_diff < elo_map[tier - 1]:
+    if amount < 0 and tier > MIN_TIER and elo_map[tier] - min_diff <= elo_map[tier - 1]:
         new_elo_map = _adjust_elo(tier - 1, -1, min_diff, elo_map=new_elo_map)
     return new_elo_map
 

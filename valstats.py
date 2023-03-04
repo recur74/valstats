@@ -24,17 +24,15 @@ plt.rcParams['ytick.right'] = plt.rcParams['ytick.labelright'] = True
 plt.rcParams['ytick.left'] = plt.rcParams['ytick.labelleft'] = False
 
 global_elo_map = {
-    3: 1050, 4: 1060, 5: 1070,
-    6: 1094, 7: 1099, 8: 1104,
-    9: 1109, 10: 1114, 11: 1119,
-    12: 1124, 13: 1161, 14: 1166,
-    15: 1171, 16: 1176, 17: 1181,
-    18: 1186, 19: 1191, 20: 1228,
-    21: 1247, 22: 1252, 23: 1257,
-    24: 1267, 25: 1272, 26: 1277,
-    27: 1326
-}
-
+    3: 1060, 4: 1075, 5: 1085,
+    6: 1094, 7: 1099, 8: 1109,
+    9: 1114, 10: 1119, 11: 1125,
+    12: 1130, 13: 1170, 14: 1175,
+    15: 1180, 16: 1185, 17: 1190,
+    18: 1195, 19: 1200, 20: 1229,
+    21: 1234, 22: 1239, 23: 1244,
+    24: 1266, 25: 1271, 26: 1276,
+    27: 1330}
 
 
 def get_tier_elo(tier, elo_map):
@@ -496,8 +494,11 @@ def plot_dm_games(username, games, weapon=None, metric='kd'):
         plot_dm_games_for_weapon(username, games, "all weapons", metric)
 
 
-def plot_elo_dm_games(username, games, weapon):
-    elos = games[weapon]
+def plot_elo_dm_games(username, games, weapon): 
+    elos = games.get(weapon)
+    if not elos:
+        print(f"No DM games found with {weapon}")
+        return
     en = [i for i, d in enumerate(elos)]
     plt.figure()
     plt.plot(en, elos, 'b')
@@ -602,7 +603,7 @@ def valstats(username, zone, plot, print_, db_name, weapon, calibrate):
     if plot:
         plot_elo_dm_games(username, elo_dm_matches, weapon)
         # plot_dm_games(username, dm_matches, weapon, 'kd')
-        plot_dm_games(username, dm_matches, weapon, 'performance')
+        # plot_dm_games(username, dm_matches, weapon, 'performance')
         plot_comp_games(username, comp_matches)
         plt.show()
 

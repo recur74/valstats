@@ -16,7 +16,7 @@ from database import file_to_object, get_session, Match, User
 
 RUNNING_AVERAGE = 50
 AVERAGE_TIER = 12  # Gold 1
-LAST_RANK_CHANGE = datetime.fromisoformat("2022-06-23T00:00:00+00:00").timestamp()
+LAST_RANK_CHANGE = datetime.fromisoformat("2022-06-23T00:00:00+00:00").timestamp() * 1000
 
 HENRIK_API = "https://api.henrikdev.xyz/valorant"
 auth = None
@@ -360,7 +360,7 @@ def calibrate_elo(matches, init_elo_map, excluded_users=[]):
     NUDGE_DISTANCE = 1
     MIN_TIER_DIFF = 5
     matches = [m for m in matches.values() if m['matchInfo']['queueID'] == 'deathmatch' and
-               m['matchInfo']['game_start'] > LAST_RANK_CHANGE]
+               m['matchInfo']['gameStartMillis'] > LAST_RANK_CHANGE]
     print(f"Calibrating on {len(matches)} DM games", flush=True)
 
     best_elo_map = copy.copy(init_elo_map)

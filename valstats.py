@@ -16,6 +16,7 @@ from database import file_to_object, get_session, Match, User
 
 RUNNING_AVERAGE = 50
 AVERAGE_TIER = 12  # Gold 1
+LAST_RANK_CHANGE = datetime.fromisoformat("2022-06-23T00:00:00+00:00").timestamp()
 
 HENRIK_API = "https://api.henrikdev.xyz/valorant"
 auth = None
@@ -322,10 +323,8 @@ def process_dms_for_elo(matches, user_id):
 
 def _calibration_score(matches, elo_map, tier=AVERAGE_TIER, weapon='Vandal', excluded_users=[]):
     res = 0
-    for match in matches.values():
+    for match in matches:
         match_res = 0
-        if match['matchInfo']['queueID'] != 'deathmatch':
-            continue
         players = [p for p in match.get('players') if
                    p.get('competitiveTier') == tier and
                    get_main_weapon(match, p.get('subject')) == weapon and p.get('subject') not in excluded_users]
@@ -360,6 +359,10 @@ def _adjust_elo(tier, amount, min_diff, elo_map=global_elo_map):
 def calibrate_elo(matches, init_elo_map, excluded_users=[]):
     NUDGE_DISTANCE = 1
     MIN_TIER_DIFF = 5
+    matches = [m for m in matches.values() if m['matchInfo']['queueID'] == 'deathmatch' and
+               m['matchInfo']['game_start'] > LAST_RANK_CHANGE]
+    print(f"Calibrating on {len(matches)} DM games", flush=True)
+
     best_elo_map = copy.copy(init_elo_map)
     scores = _score_all_tiers(matches, init_elo_map, excluded_users=excluded_users)
 
@@ -381,7 +384,7 @@ def calibrate_elo(matches, init_elo_map, excluded_users=[]):
         smallest = sorted(test_scores, key=lambda y: abs(test_scores[y][0]))[0]
         print(f"The best change was {get_tier_by_number(smallest).get('tierName')}[{test_scores[smallest][1]}] with {test_scores[smallest][0]}", flush=True)
         if test_scores[smallest][0] >= best_score:
-            print("No improvment. Stopping.")
+            print("No improvement. Stopping.")
             break
         best_score = test_scores[smallest][0]
         best_elo_map = _adjust_elo(tier=smallest, amount=test_scores[smallest][1], min_diff=MIN_TIER_DIFF,

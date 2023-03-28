@@ -24,18 +24,17 @@ auth = None
 plt.rcParams['ytick.right'] = plt.rcParams['ytick.labelright'] = True
 plt.rcParams['ytick.left'] = plt.rcParams['ytick.labelleft'] = False
 
-global_elo_map = {
-    3: 1045, 4: 1050, 5: 1055,
-    6: 1060, 7: 1065, 8: 1070,
-    9: 1128, 10: 1133, 11: 1138,
-    12: 1143, 13: 1149, 14: 1173,
-    15: 1190, 16: 1195, 17: 1200,
-    18: 1205, 19: 1210, 20: 1215,
-    21: 1235, 22: 1240, 23: 1270,
-    24: 1275, 25: 1280, 26: 1285,
-    27: 1367
+global_elo_map =  {
+    3: 1040, 4: 1045, 5: 1071,
+    6: 1093, 7: 1098, 8: 1104,
+    9: 1137, 10: 1158, 11: 1165,
+    12: 1170, 13: 1175, 14: 1181,
+    15: 1191, 16: 1197, 17: 1202,
+    18: 1208, 19: 1213, 20: 1218,
+    21: 1223, 22: 1228, 23: 1240,
+    24: 1251, 25: 1256, 26: 1261,
+    27: 1289
 }
-
 
 def get_tier_elo(tier, elo_map):
     return elo_map.get(tier)
@@ -382,6 +381,7 @@ def calibrate_elo(matches, init_elo_map, excluded_users=[]):
             amount = int(NUDGE_DISTANCE * (score/abs(score)))
             test_elo_map = _adjust_elo(tier=tier, amount=amount, min_diff=MIN_TIER_DIFF, elo_map=best_elo_map)
             test_scores[tier] = (_score_all_tiers(matches, test_elo_map, excluded_users=excluded_users)['total'], amount)
+            print(test_scores[tier])
         smallest = sorted(test_scores, key=lambda y: abs(test_scores[y][0]))[0]
         print(f"The best change was {get_tier_by_number(smallest).get('tierName')}[{test_scores[smallest][1]}] with {test_scores[smallest][0]}", flush=True)
         if test_scores[smallest][0] >= best_score:
@@ -565,13 +565,13 @@ def plot_dm_games_for_weapon(username, games, weapon, metric='kd'):
               type=click.Choice([d.get('displayName').lower() for d in get_all_weapons()]))
 @click.option('--calibrate/--no-calibrate', default=False)
 def valstats(username, zone, plot, print_, db_name, weapon, calibrate):
-    if db_name is None:
-        db_name = username + '.db'
+    if not db_name:
+        db_name = f"{username}.sqlitedb"
     weapon = weapon.title() if weapon else weapon
     name, tag = username.split('#')
     global auth
     auth = Auth(name, tag, zone)
-    session = get_session(f"{username}.sqlitedb")
+    session = get_session(f"{db_name}")
     user_id = get_user_id(session)
     if not user_id:
         return

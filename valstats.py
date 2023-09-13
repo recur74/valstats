@@ -175,11 +175,11 @@ def get_game_history(session, exclude=[]):
     user_id = get_user_id(session)
     url = f"{HENRIK_API}/v3/by-puuid/matches/{auth.region}/{user_id}"
     result = []
-    for typ in ('deathmatch', 'competitive'):
+    for typ in ('deathmatch', 'competitive', 'teamdeathmatch'):
         response = auth.session.get(url, params={'size': 10, 'filter': typ}).json()
         for m in response['data']:
             if m['metadata']['matchid'] not in exclude:
-                if typ == 'deathmatch':
+                if typ in ('deathmatch', 'teamdeathmatch'):
                     insert_competitive_tiers(m)
                 result.append(m)
     print(f"Found {len(result)} new games", flush=True)
@@ -310,7 +310,7 @@ def process_dms_for_elo(matches, user_id):
     print("Processing deathmatch games for elo", flush=True)
     elos = {'Unknown': [0]}
     for match in matches.values():
-        if match['matchInfo']['queueID'] != 'deathmatch':
+        if match['matchInfo']['queueID'] not in ('deathmatch', 'team deathmatch'):
             continue
         main_weapon = get_main_weapon(match, user_id)
         if main_weapon not in elos:
@@ -361,7 +361,7 @@ def _adjust_elo(tier, amount, min_diff, elo_map=global_elo_map):
 def calibrate_elo(matches, init_elo_map, excluded_users=[]):
     NUDGE_DISTANCE = 1
     MIN_TIER_DIFF = 5
-    matches = [m for m in matches.values() if m['matchInfo']['queueID'] == 'deathmatch' and
+    matches = [m for m in matches.values() if m['matchInfo']['queueID'] in ('deathmatch', 'team deathmatch') and
                m['matchInfo']['gameStartMillis'] > LAST_RANK_CHANGE]
     print(f"Calibrating on {len(matches)} DM games", flush=True)
 
@@ -399,13 +399,14 @@ def process_dm_matches(auth, matches, user_id):
     print("Processing deathmatch games", flush=True)
     games = []
     for match in matches.values():
-        if match['matchInfo']['queueID'] != 'deathmatch':
+        if match['matchInfo']['queueID'] not in ('deathmatch', 'team deathmatch'):
             continue
         main_weapon = get_main_weapon(match, user_id)
         starttime = datetime.utcfromtimestamp(match.get('matchInfo').get('gameStartMillis') / 1000).replace(
             tzinfo=tz.tzutc()).isoformat()
         map = get_map(match.get('matchInfo').get('mapId')).get('displayName')
-        game = {'date': starttime,
+        game = {'mode': match['matchInfo']['queueID'],
+                'date': starttime,
                 'map': map,
                 'weapon': main_weapon}
         tiers = [p.get('competitiveTier') or AVERAGE_TIER for p in match.get('players') if p.get('subject') != user_id]
@@ -420,7 +421,7 @@ def process_dm_matches(auth, matches, user_id):
         # print(f"Average Tier: {get_tier_by_number(round(avg_tier)).get('tierName')}")
         # print(main_weapon)
         game['performance'] = round(
-            ((game['kills'] * 1 + game['assists'] * 0.25) * get_dm_weight(main_weapon, avg_tier, starttime)) / (
+            ((game['kills'] - game['assists']) * get_dm_weight(main_weapon, avg_tier, starttime)) / (
                 game['deaths']), 2)
         game['kd'] = round(game['kills'] / game['deaths'], 2)
         games.append(game)
@@ -433,11 +434,11 @@ def print_dm_games(games: list):
     for game in games:
         running_average.append(game['performance'])
         gamedate = parser.parse(game['date']).astimezone().replace(tzinfo=None)
-        print("DEATHMATCH")
+        print(game['mode'].upper())
         print(gamedate.isoformat(sep=' ', timespec='minutes'))
         print(game['agent'] + '@' + game['map'])
         print(game['weapon'])
-        print("{}/{} - {}".format(game['kills'], game['deaths'], game['kd']))
+        print("{}/{}/{} - {}".format(game['kills'], game['deaths'], game['assists'], game['kd']))
         print(f"{get_tier_by_number(round(game['avg_tier'])).get('tierName')} - {game['performance']}")
         if len(running_average) > RUNNING_AVERAGE:
             running_average = running_average[-RUNNING_AVERAGE:]
@@ -478,13 +479,13 @@ def plot_comp_games(username: str, games: list):
                list(t.get('tierName') for t in get_competitive_tiers()))
     plt.xticks(dates, en_dates)
     plt.gca().xaxis.set_major_locator(plt.MaxNLocator(10))
-    plt.grid(b=True, which='major', axis='y', color='#EEEEEE', linestyle='-')
+    plt.grid(visible=True, which='major', axis='y', color='#EEEEEE', linestyle='-')
 
     plt.xlabel('Matches')
     plt.ylabel('Rank')
 
     plt.legend()
-    plt.title('Competitive RR vs MMR for {username}'.format(username=username))
+    plt.title(f'Competitive RR vs MMR for {username}')
 
 
 def plot_dm_games(username, games, weapon=None, metric='kd'):
@@ -511,10 +512,10 @@ def plot_elo_dm_games(username, games, weapon):
     tiers = [t for t in get_competitive_tiers() if "Un" not in t.get('tierName')]
     plt.yticks(list(get_tier_elo(t.get('tier'), global_elo_map) for t in tiers),
                list(t.get('tierName') for t in tiers))
-    plt.grid(b=True, which='major', axis='y', color='#EEEEEE', linestyle='-')
+    plt.grid(visible=True, which='major', axis='y', color='#EEEEEE', linestyle='-')
     plt.xlabel('Matches')
     plt.ylabel('Elo')
-    plt.title(f'Deathmatch Elo for {username} with {weapon}'.format(username=username, weapon=weapon))
+    plt.title(f'Deathmatch Elo for {username} with {weapon}')
 
 
 def plot_dm_games_for_weapon(username, games, weapon, metric='kd'):
@@ -549,12 +550,12 @@ def plot_dm_games_for_weapon(username, games, weapon, metric='kd'):
     plt.ylim(bottom=0)
     plt.xticks(dates, en_dates)
     plt.gca().xaxis.set_major_locator(plt.MaxNLocator(10))
-    plt.grid(b=True, which='major', axis='y', color='#EEEEEE', linestyle='-')
+    plt.grid(visible=True, which='major', axis='y', color='#EEEEEE', linestyle='-')
 
     plt.xlabel('Matches')
     plt.ylabel(metric)
     plt.legend()
-    plt.title(f'Deathmatch {metric} for {username} with {weapon}'.format(username=username, weapon=weapon))
+    plt.title(f'Deathmatch {metric} for {username} with {weapon}')
 
 
 @click.command()
@@ -609,7 +610,7 @@ def valstats(username, zone, plot, print_, db_name, weapon, calibrate):
     if plot:
         plot_elo_dm_games(username, elo_dm_matches, weapon)
         # plot_dm_games(username, dm_matches, weapon, 'kd')
-        # plot_dm_games(username, dm_matches, weapon, 'performance')
+        plot_dm_games(username, dm_matches, weapon, 'performance')
         plot_comp_games(username, comp_matches)
         plt.show()
 

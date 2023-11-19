@@ -251,7 +251,7 @@ def get_dm_weight(main_weapon, avg_tier, date_of_match):
     weapon_damp = 6000
     baseline_weapon = 'Vandal'
     days_ago = (date.today() - parser.parse(date_of_match).date()).days
-    tier_decay = (days_ago - 3650) / -3650
+    tier_decay = 1 - (days_ago / 3650)
 
     tier_weight = (avg_tier * tier_decay + tier_damp) / (AVERAGE_TIER + tier_damp)
     # print(f"tier_weight for {avg_tier:.2f}: {tier_weight:.2f}")
@@ -421,8 +421,8 @@ def process_dm_matches(auth, matches, user_id):
         # print(f"Average Tier: {get_tier_by_number(round(avg_tier)).get('tierName')}")
         # print(main_weapon)
         game['performance'] = round(
-            ((game['kills'] - game['assists']) * get_dm_weight(main_weapon, avg_tier, starttime)) / (
-                game['deaths']), 2)
+            ((game['kills']) * get_dm_weight(main_weapon, avg_tier, starttime)) / (
+                game['deaths'] + game['assists']), 2)
         game['kd'] = round(game['kills'] / game['deaths'], 2)
         games.append(game)
     return games

@@ -420,11 +420,16 @@ def process_dm_matches(auth, matches, user_id):
         game['avg_tier'] = avg_tier
         # print(f"Average Tier: {get_tier_by_number(round(avg_tier)).get('tierName')}")
         # print(main_weapon)
-        game['performance'] = round(
-            ((game['kills']) * get_dm_weight(main_weapon, avg_tier, starttime)) / (
-                game['deaths'] + game['assists']), 2)
-        game['kd'] = round(game['kills'] / game['deaths'], 2)
-        games.append(game)
+        if game['kills'] > 0:
+            if game['deaths'] > 0:
+                game['performance'] = round(
+                    ((game['kills']) * get_dm_weight(main_weapon, avg_tier, starttime)) / (
+                        game['deaths'] + game['assists']), 2)
+                game['kd'] = round(game['kills'] / game['deaths'], 2)
+            else:
+                game['performance'] = 10
+                game['kd'] = 10
+            games.append(game)
     return games
 
 

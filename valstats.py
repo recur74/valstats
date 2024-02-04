@@ -506,17 +506,18 @@ def plot_dm_games(username, games, weapon=None, metric='kd'):
         plot_dm_games_for_weapon(username, games, "all weapons", metric)
 
 
-def plot_elo_dm_games(username, games, weapon): 
+def plot_elo_dm_games(username, games, weapon):
     elos = games.get(weapon)
     if not elos:
         print(f"No DM games found with {weapon}")
         return
-    en = [i for i, d in enumerate(elos)]
+    en = list(range(len(elos)))
     plt.figure()
     plt.plot(en, elos, 'b')
     tiers = [t for t in get_competitive_tiers() if "Un" not in t.get('tierName')]
-    plt.yticks(list(get_tier_elo(t.get('tier'), global_elo_map) for t in tiers),
-               list(t.get('tierName') for t in tiers))
+    tier_elo_values = [get_tier_elo(t.get('tier'), global_elo_map) for t in tiers]
+    tier_names = [t.get('tierName') for t in tiers]
+    plt.yticks(tier_elo_values, tier_names)
     plt.grid(visible=True, which='major', axis='y', color='#EEEEEE', linestyle='-')
     plt.xlabel('Matches')
     plt.ylabel('Elo')

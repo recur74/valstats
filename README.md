@@ -1,7 +1,5 @@
 # valstats
 
-*Doesn't work if two-factor authentication is turned on*
-
 Plots a users Valorant Deathmatches, showing k/d changes over time.
 Plots a users Valorant Competitive games, comparing the players Ranked Rating with an estimated MMR.
 

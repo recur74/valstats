@@ -1,29 +1,36 @@
 #! /usr/bin/env python
 import copy
 import json
+import os
+import time
 from datetime import datetime, date
 from functools import lru_cache
 from statistics import median
 
 import click
+import jsons
 import matplotlib.pyplot as plt
 import numpy as np
+import valo_api
 from dateutil import parser, tz
+from dotenv import load_dotenv
 
 import elo
 from auth import Auth, requests_retry_session
 from database import file_to_object, get_session, Match, User
+
+load_dotenv()
 
 RUNNING_AVERAGE = 50
 AVERAGE_TIER = 12  # Gold 1
 LAST_RANK_CHANGE = datetime.fromisoformat("2022-06-23T00:00:00+00:00").timestamp() * 1000
 
 HENRIK_API = "https://api.henrikdev.xyz/valorant"
+HENRIK_KEY = os.getenv('HENRIK_KEY')
 auth = None
 
 plt.rcParams['ytick.right'] = plt.rcParams['ytick.labelright'] = True
 plt.rcParams['ytick.left'] = plt.rcParams['ytick.labelleft'] = False
-
 
 global_elo_map = {
     3: 1040, 4: 1051, 5: 1093,
@@ -36,6 +43,8 @@ global_elo_map = {
     24: 1250, 25: 1255, 26: 1260,
     27: 1280
 }
+
+valo_api.set_api_key(HENRIK_KEY)
 
 
 def get_tier_elo(tier, elo_map):
@@ -51,26 +60,29 @@ def get_user_id(session):
         one_or_none()
     if user_id:
         return user_id[0]
-    url = f"{HENRIK_API}/v1/account/{auth.name}/{auth.tag}"
-    response = auth.session.get(url).json()
-    if response.get('status') == 404:
-        print(f"Could not find user '{auth.name}#{auth.tag}'")
-        return None
-    if response.get('status') != 200:
-        print(response.get('errors')[0]['message'])
-        return None
-    user_id = response['data']['puuid']
+    try:
+        response = valo_api.get_account_details_by_name_v1(name=auth.name, tag=auth.tag)
+    except valo_api.exceptions.valo_api_exception.ValoAPIException as e:
+        if e.status == 404:
+            print(f"Could not find user '{auth.name}#{auth.tag}'")
+            return None
+        raise e
+    user_id = response.puuid
     session.add(User(id=user_id, name=auth.name, tag=auth.tag))
     session.commit()
     return user_id
 
 
 def get_user_mmr(user_id):
-    url = f"{HENRIK_API}/v2/by-puuid/mmr/{auth.region}/{user_id}"
-    response = auth.session.get(url).json()
-    if response['status'] != 200:
-        return AVERAGE_TIER
-    return response['data']['current_data']['currenttier']
+    try:
+        response = valo_api.get_mmr_details_by_puuid_v2(region=auth.region, puuid=user_id)
+        time.sleep(2)
+    except valo_api.exceptions.valo_api_exception.ValoAPIException as e:
+        if e.status == 404:
+            print(f"Could not find user '{auth.name}#{auth.tag}'")
+            return AVERAGE_TIER
+        raise e
+    return response.current_data.currenttier
 
 
 @lru_cache
@@ -173,23 +185,22 @@ def map_to_internal(matches):
 def get_game_history(session, exclude=[]):
     print("Fetching matches", flush=True)
     user_id = get_user_id(session)
-    url = f"{HENRIK_API}/v3/by-puuid/matches/{auth.region}/{user_id}"
     result = []
     for typ in ('deathmatch', 'competitive', 'teamdeathmatch'):
-        response = auth.session.get(url, params={'size': 10, 'filter': typ}).json()
-        for m in response['data']:
-            if m['metadata']['matchid'] not in exclude:
+        response = valo_api.get_match_history_by_puuid_v3(region=auth.region, puuid=user_id, size=10, game_mode=typ)
+        for match in response:
+            if match.metadata.matchid not in exclude:
                 if typ in ('deathmatch', 'teamdeathmatch'):
-                    insert_competitive_tiers(m)
-                result.append(m)
+                    insert_competitive_tiers(match)
+                result.append(match)
     print(f"Found {len(result)} new games", flush=True)
-    return map_to_internal(result)
+    return map_to_internal(jsons.dump(result))
 
 
 def insert_competitive_tiers(deathmatch):
-    for p in deathmatch['players']['all_players']:
-        tier = get_user_mmr(p['puuid'])
-        p['currenttier'] = tier
+    for p in deathmatch.players.all_players:
+        tier = get_user_mmr(p.puuid)
+        p.currenttier = tier
 
 
 def process_comp_matches(matches, user_id):
@@ -333,7 +344,8 @@ def _calibration_score(matches, elo_map, tier=AVERAGE_TIER, weapon='Vandal', exc
         if len(players) < 2:
             continue
         for player in players:
-            match_res += elo_gain_for_match_for_user(match, player.get('subject'), elo_map, get_tier_elo(tier, elo_map), excluded_users=excluded_users)
+            match_res += elo_gain_for_match_for_user(match, player.get('subject'), elo_map, get_tier_elo(tier, elo_map),
+                                                     excluded_users=excluded_users)
         res += match_res / len(players)
     return res
 
@@ -380,12 +392,15 @@ def calibrate_elo(matches, init_elo_map, excluded_users=[]):
             score = scores['tiers'][tier]
             if score == 0:
                 continue
-            amount = int(NUDGE_DISTANCE * (score/abs(score)))
+            amount = int(NUDGE_DISTANCE * (score / abs(score)))
             test_elo_map = _adjust_elo(tier=tier, amount=amount, min_diff=MIN_TIER_DIFF, elo_map=best_elo_map)
-            test_scores[tier] = (_score_all_tiers(matches, test_elo_map, excluded_users=excluded_users)['total'], amount)
+            test_scores[tier] = (
+                _score_all_tiers(matches, test_elo_map, excluded_users=excluded_users)['total'], amount)
             print(test_scores[tier])
         smallest = sorted(test_scores, key=lambda y: abs(test_scores[y][0]))[0]
-        print(f"The best change was {get_tier_by_number(smallest).get('tierName')}[{test_scores[smallest][1]}] with {test_scores[smallest][0]}", flush=True)
+        print(
+            f"The best change was {get_tier_by_number(smallest).get('tierName')}[{test_scores[smallest][1]}] with {test_scores[smallest][0]}",
+            flush=True)
         if test_scores[smallest][0] >= best_score:
             print("No improvement. Stopping.")
             break
@@ -424,7 +439,7 @@ def process_dm_matches(auth, matches, user_id):
             if game['deaths'] > 0:
                 game['performance'] = round(
                     ((game['kills']) * get_dm_weight(main_weapon, avg_tier, starttime)) / (
-                        game['deaths'] + game['assists']), 2)
+                            game['deaths'] + game['assists']), 2)
                 game['kd'] = round(game['kills'] / game['deaths'], 2)
             else:
                 game['performance'] = 10
@@ -602,7 +617,7 @@ def valstats(username, zone, plot, print_, db_name, weapon, calibrate):
         matches.update(new_matches)
     matches = sorted(matches.values(), key=lambda m: m.get('matchInfo').get('gameStartMillis'))
     matches = {m.get('matchInfo').get('matchid'): m for m in matches}
-    
+
     if calibrate:
         calibrate_elo(matches, global_elo_map, excluded_users=[user_id])
         return

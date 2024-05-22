@@ -1,0 +1,7 @@
+python-dotenv
+requests
+matplotlib
+click
+numpy
+valo-api
+jsons

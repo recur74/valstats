@@ -5,3 +5,5 @@ click
 numpy
 valo-api
 jsons
+frozendict
+sqlalchemy

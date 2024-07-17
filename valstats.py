@@ -21,6 +21,8 @@ from database import file_to_object, get_session, Match, User
 
 load_dotenv()
 
+THROTTLE = 9  # Wait this many seconds between calls
+
 RUNNING_AVERAGE = 50
 AVERAGE_TIER = 12  # Gold 1
 LAST_RANK_CHANGE = datetime.fromisoformat("2022-06-23T00:00:00+00:00").timestamp() * 1000
@@ -73,13 +75,15 @@ def get_user_id(session):
     return user_id
 
 
+@lru_cache
 def get_user_mmr(user_id):
     try:
         response = valo_api.get_mmr_details_by_puuid_v2(region=auth.region, puuid=user_id)
-        time.sleep(2)
+        print(f"Fetched rank for user '{response.name}'", flush=True)
+        time.sleep(THROTTLE)
     except valo_api.exceptions.valo_api_exception.ValoAPIException as e:
         if e.status == 404:
-            print(f"Could not find user '{auth.name}#{auth.tag}'")
+            print(f"Could not find user '{user_id}'")
             return AVERAGE_TIER
         raise e
     return response.current_data.currenttier
@@ -300,14 +304,14 @@ def elo_gain_for_match_for_user(match, user_id, elo_map=global_elo_map,
         if kill['killer'] == user_id:
             victim = next(iter(p for p in match['players'] if p['subject'] == kill.get('victim')))
             opponent_tier = victim.get('competitiveTier')
-            if opponent_tier is None:
+            if is_unranked(opponent_tier):
                 continue
             match_elo_score[kill_weapon]['expected'] += elo.expected(initial_elo, get_tier_elo(opponent_tier, elo_map))
             match_elo_score[kill_weapon]['actual'] += 1
         if kill.get('victim') == user_id:
             opponent_tier = next(
                 iter(p.get('competitiveTier') for p in match['players'] if p['subject'] == kill['killer']))
-            if opponent_tier is None:
+            if is_unranked(opponent_tier):
                 continue
             match_elo_score[kill_weapon]['expected'] += elo.expected(initial_elo, get_tier_elo(opponent_tier, elo_map))
     if main_weapon not in match_elo_score or len(match_elo_score[main_weapon]) == 0:
@@ -315,6 +319,10 @@ def elo_gain_for_match_for_user(match, user_id, elo_map=global_elo_map,
     new_elo = elo.elo(initial_elo, match_elo_score[main_weapon]['expected'],
                       match_elo_score[main_weapon]['actual'], k=1)
     return new_elo - initial_elo
+
+
+def is_unranked(tier):
+    return tier is None or tier == 0
 
 
 def process_dms_for_elo(matches, user_id):

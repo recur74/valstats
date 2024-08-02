@@ -21,7 +21,7 @@ from database import file_to_object, get_session, Match, User
 
 load_dotenv()
 
-THROTTLE = 9  # Wait this many seconds between calls
+THROTTLE = 10  # Wait this many seconds between calls
 
 RUNNING_AVERAGE = 50
 AVERAGE_TIER = 12  # Gold 1
@@ -79,13 +79,17 @@ def get_user_id(session):
 def get_user_mmr(user_id):
     try:
         response = valo_api.get_mmr_details_by_puuid_v2(region=auth.region, puuid=user_id)
-        print(f"Fetched rank for user '{response.name}'", flush=True)
+        try:
+            print(f"Fetched rank for user '{response.name}'", flush=True)
+        except:
+            print(f"Fetched rank for user '{user_id}'", flush=True)
         time.sleep(THROTTLE)
     except valo_api.exceptions.valo_api_exception.ValoAPIException as e:
         if e.status == 404:
             print(f"Could not find user '{user_id}'")
-            return AVERAGE_TIER
-        raise e
+        else:
+            print(f"Issue with finding mmr for '{user_id}': {str(e)}")
+        return 0
     return response.current_data.currenttier
 
 
